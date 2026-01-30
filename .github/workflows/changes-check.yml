@@ -1,0 +1,90 @@
+name: Changes Check
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Install system dependencies for Puppeteer
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y chromium-browser
+          npm install --save-optional puppeteer
+
+      - name: Run change detection
+        run: npm run build
+
+      - name: Cleanup old screenshots
+        run: npm run cleanup
+
+      - name: Upload to GitHub Pages
+        uses: actions/upload-pages-artifact@v2
+        with:
+          path: '.'
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v2
+
+      - name: Commit changes
+        continue-on-error: true
+        run: |
+          git config user.name "Changes Monitor"
+          git config user.email "changes-monitor@github.local"
+          git add -A
+          git commit -m "[skip ci] Changes detected" || true
+          git push
+
+      # Optional: Send notification if changes detected
+      # Uncomment to enable notifications
+      
+      # - name: Check for changes
+      #   id: check_changes
+      #   run: |
+      #     # Check if any source has changed status
+      #     if grep -r '"status": "changed"' api/ 2>/dev/null; then
+      #       echo "changes_detected=true" >> $GITHUB_OUTPUT
+      #     else
+      #       echo "changes_detected=false" >> $GITHUB_OUTPUT
+      #     fi
+
+      # - name: Notify Slack
+      #   if: steps.check_changes.outputs.changes_detected == 'true'
+      #   uses: slackapi/slack-github-action@v1
+      #   with:
+      #     payload: |
+      #       {
+      #         "text": "🔔 Changes detected!",
+      #         "blocks": [
+      #           {
+      #             "type": "section",
+      #             "text": {
+      #               "type": "mrkdwn",
+      #               "text": "View results: ${{ github.server_url }}/${{ github.repository }}/tree/${{ github.ref_name }}"
+      #             }
+      #           }
+      #         ]
+      #       }
+      #   env:
+      #     SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK }}

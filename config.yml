@@ -11,3 +11,6 @@ sources:
   #   url: https://example.com/page.html
   #   type: html
   #   selector: .version
+
+  - name: Google
+    url: https://google.es

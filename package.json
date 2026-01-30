@@ -7,11 +7,13 @@
   "scripts": {
     "dev": "node --watch index.js",
     "build": "node index.js",
+    "cleanup": "node scripts/cleanup-old-screenshots.js",
     "test": "node --test",
     "test:watch": "node --test --watch"
   },
   "dependencies": {
-    "html2canvas": "^1.4.1",
-    "jsdom": "^27.4.0"
+    "canvas": "^3.2.1",
+    "jsdom": "^27.4.0",
+    "puppeteer": "^24.36.1"
   }
 }

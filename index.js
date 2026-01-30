@@ -4,7 +4,7 @@ import { fileURLToPath } from 'url';
 import { parseYAML } from './lib/yaml-parser.js';
 import { checkContent } from './lib/detector.js';
 import { generateHTML } from './lib/html.js';
-import { captureScreenshot, getTimestampedFilename, cleanupOldScreenshots, getRecentScreenshots } from './lib/screenshot.js';
+import { captureScreenshot, getTimestampedFilename, cleanupOldScreenshots, getRecentScreenshots, captureSourceScreenshot, getSourceScreenshots } from './lib/screenshot.js';
 
 /**
  * @typedef {Object} Source
@@ -175,6 +175,17 @@ async function main() {
 
                 saveChangeData(source.id, changeData);
 
+                // Capture screenshot of source
+                if (result.html) {
+                    console.log(`    Capturing source screenshot...`);
+                    const screenshotResult = await captureSourceScreenshot(result.html, source.id);
+                    if (screenshotResult.success) {
+                        console.log(`    ✓ Screenshot saved: ${screenshotResult.filename}`);
+                    } else {
+                        console.log(`    ✗ Screenshot failed: ${screenshotResult.error}`);
+                    }
+                }
+
                 results.push({
                     id: source.id,
                     name: source.name,
@@ -182,7 +193,8 @@ async function main() {
                     currentHash: result.currentHash,
                     previousHash: previousHash,
                     timestamp: changeData.timestamp,
-                    error: changeData.error
+                    error: changeData.error,
+                    screenshots: getSourceScreenshots(source.id, 3)
                 });
 
                 if (changeData.status === 'changed') {
@@ -231,7 +243,7 @@ async function main() {
         const screenshotResult = await captureScreenshot(htmlContent, screenshotFilename);
 
         if (screenshotResult.success) {
-            console.log(`✓ Screenshot saved: screenshots/${screenshotFilename}`);
+            console.log(`✓ Screenshot saved: screenshots/${screenshotResult.filename}`);
             cleanupOldScreenshots(10); // Keep only last 10 screenshots
         } else {
             console.warn(`⚠ Screenshot capture failed: ${screenshotResult.error}`);
