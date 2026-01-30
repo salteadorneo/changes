@@ -1,15 +1,17 @@
 # Changes Monitor
 
-Lightweight static change detection and monitoring system for GitHub Pages.
+Lightweight change detection and monitoring system for GitHub Pages with **automatic screenshot capture** of monitored websites.
 
 ## Features
 
-- **Zero dependencies** - Only Node.js built-ins
-- **Static site generation** - Runs on GitHub Actions, deploys to GitHub Pages
-- **Content hashing** - Detect any changes using SHA256 hashes
-- **Multiple source types** - HTML (with CSS selectors), JSON, plain content
-- **Multi-language support** - Spanish and English UI
-- **No databases** - Everything is static files
+- **Change Detection** - SHA256 hashing to detect any content changes
+- **Automatic Screenshots** - Captures PNG screenshots of monitored sources using Puppeteer
+- **Multiple Source Types** - HTML (CSS selectors), JSON (dot notation), plain content
+- **Static Site Generation** - Runs on GitHub Actions, deploys to GitHub Pages
+- **Visual Dashboard** - Real-time monitoring with screenshot thumbnails
+- **Multi-language Support** - English and Spanish UI
+- **No Databases** - Everything stored as static files and git commits
+- **Auto-cleanup** - Keeps only recent screenshots to prevent repo bloat
 
 ## Quick Start
 
@@ -21,12 +23,16 @@ Edit `config.yml` to add the sources you want to monitor:
 title: Change Monitor
 language: es
 sources:
-  - name: Example API
+  - name: Website
+    url: https://example.com
+    type: content
+  
+  - name: API Version
     url: https://api.example.com/version.json
     type: json
     jsonPath: data.version
   
-  - name: Website Version
+  - name: Version Badge
     url: https://example.com
     type: html
     selector: .version-badge
@@ -36,58 +42,82 @@ sources:
 
 ```bash
 npm install
-npm run build    # Single check
+npm run build    # Single check + capture screenshots
 npm run dev      # Watch mode
+npm run cleanup  # Remove old screenshots (keep last 3-5)
 ```
 
 ### 3. Deploy to GitHub Pages
 
-The system auto-generates:
-- `index.html` - Dashboard with all sources
-- `api/{source-id}/status.json` - Current status for each source
-- Badge SVGs for embedding in README
+GitHub Actions automatically:
+1. Checks all sources for changes
+2. Captures PNG screenshots of each source
+3. Generates a dashboard with status + thumbnails
+4. Commits changes to git
+5. Deploys to GitHub Pages
 
 ## Configuration
 
 ### Source Types
 
-- **content** - Plain text content comparison
-- **html** - Extract content using CSS selector
-- **json** - Extract values using dot notation paths
+- **content** - Plain text/HTML content comparison
+- **html** - Extract using CSS selectors (e.g., `.version`, `[data-version]`, `h1`)
+- **json** - Extract using dot notation (e.g., `data.version.number`)
 
-### Example Sources
+### Example Config
 
 ```yaml
 sources:
-  # Plain text content
-  - name: README
-    url: https://raw.githubusercontent.com/user/repo/main/README.md
+  # Monitor entire page content
+  - name: Homepage
+    url: https://example.com
     type: content
   
-  # HTML with selector
+  # Extract specific HTML element
   - name: Version Badge
     url: https://example.com
     type: html
     selector: "[data-version]"
+    timeout: 10000
   
-  # JSON with path
+  # Monitor API endpoint
   - name: API Version
     url: https://api.example.com/status.json
     type: json
-    jsonPath: version.number
+    jsonPath: version
     timeout: 15000
 ```
 
-## Data Structure
+## Output Structure
 
-Each source generates a status file at `api/{source-id}/status.json`:
+### Generated Files
+
+```
+index.html                          # Main dashboard
+screenshots/
+  dashboard-YYYY-MM-DDTHH-MM-SS.png # Dashboard snapshots (last 5)
+  sources/
+    petanca-YYYY-MM-DDTHH-MM-SS.png # Source screenshots (last 3 each)
+    google-YYYY-MM-DDTHH-MM-SS.png
+api/
+  petanca/
+    status.json                      # Current status
+    history/
+      2026-01.json                   # Monthly history
+  google/
+    status.json
+    history/
+      2026-01.json
+```
+
+### Status File Format
 
 ```json
 {
   "lastCheck": "2026-01-30T10:00:00.000Z",
   "status": "changed",
-  "currentHash": "abc123...",
-  "previousHash": "def456...",
+  "currentHash": "abc123def456...",
+  "previousHash": "def456abc123...",
   "timestamp": "2026-01-30T10:00:00.000Z",
   "error": null
 }
@@ -101,74 +131,80 @@ Supported languages:
 
 Add new languages by creating `lang/{code}.json` with translation strings.
 
-## GitHub Actions Integration
+## GitHub Actions Setup
 
-Add to `.github/workflows/changes-check.yml`:
+The workflow (`.github/workflows/changes-check.yml`) runs every 15 minutes and:
+
+1. **Installs Chromium** for Puppeteer browser automation
+2. **Runs detection** - checks each source and captures screenshots
+3. **Cleans up** - keeps only the most recent screenshots
+4. **Deploys** - updates GitHub Pages automatically
+5. **Commits** - saves all changes to git (images + status files)
+
+### Required Permissions
+
+Add to your GitHub Pages workflow:
 
 ```yaml
-name: Changes Check
-
-on:
-  schedule:
-    - cron: '*/10 * * * *'  # Every 10 minutes
-  workflow_dispatch:
-
 permissions:
-  contents: write
-  pages: write
-  id-token: write
-
-jobs:
-  check:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      
-      - uses: actions/setup-node@v3
-        with:
-          node-version: '18'
-      
-      - run: npm run build
-      
-      - uses: actions/upload-pages-artifact@v2
-        with:
-          path: '.'
-      
-      - uses: actions/deploy-pages@v2
-      
-      - name: Commit changes
-        run: |
-          git config user.name "Change Monitor"
-          git config user.email "monitor@github.com"
-          git add -A
-          git commit -m "[skip ci] Changes detected" || true
-          git push
+  contents: write      # Commit generated files
+  pages: write         # Deploy to Pages
+  id-token: write      # ID token for Pages
 ```
 
 ## Scripts
 
 ```bash
-npm run build      # Single check and generate HTML
+npm run build      # Check sources + capture screenshots + generate dashboard
 npm run dev        # Watch mode for development
+npm run cleanup    # Remove old screenshots (keeps last 3-5)
 npm test           # Run tests
 npm test:watch     # Watch mode for tests
 ```
 
 ## Architecture
 
-- **index.js** - Main orchestrator
-- **lib/detector.js** - Content checking with SHA256 hashing
-- **lib/html.js** - HTML generation for dashboard
+### Core Modules
+
+- **index.js** - Main orchestrator (config loading, loop, git commits)
+- **lib/detector.js** - Content checking + SHA256 hashing + HTML fetching
+- **lib/screenshot.js** - Puppeteer-based screenshot capture with auto-cleanup
+- **lib/html.js** - Dashboard HTML generation with screenshot thumbnails
 - **lib/yaml-parser.js** - Zero-dependency YAML parsing
-- **lib/utils.js** - Date formatting and utilities
-- **lang/*.json** - Translation files
+- **lib/utils.js** - Date formatting + utilities
+- **lang/*.json** - UI translations (EN/ES)
 
-## Limitations
+### Dependencies
 
-- HTML selectors must be CSS selectors (no XPath)
-- JSON paths use dot notation only
-- Timeout is 10 seconds by default
-- 3 retry attempts with 2-second delays
+- **puppeteer** - Browser automation for screenshot capture
+- **jsdom** - HTML parsing for content extraction
+- **canvas** - Image rendering (Puppeteer dependency)
+
+### How It Works
+
+```
+1. Load config.yml (sources to monitor)
+2. For each source:
+   a. Fetch content from URL
+   b. Extract using selector/jsonPath/as-is
+   c. Calculate SHA256 hash
+   d. Compare with previous hash
+   e. Capture PNG screenshot with Puppeteer
+3. Generate dashboard HTML with thumbnails
+4. Save status JSON files
+5. Cleanup old screenshots (keep last 3-5)
+6. Commit changes to git
+```
+
+## Limitations & Notes
+
+- Puppeteer requires Chromium (auto-installed, ~200MB)
+- Screenshots in GitHub Actions use system Chromium from Ubuntu
+- Timeout default is 10 seconds, can be overridden per source
+- 3 retry attempts with 2-second delays on network errors
+- CSS selectors are standard (not XPath)
+- JSON paths use simple dot notation (no complex queries)
+- Screenshots are stored in git (with auto-cleanup to stay bounded)
 
 ## License
 

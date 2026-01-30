@@ -175,14 +175,20 @@ async function main() {
 
                 saveChangeData(source.id, changeData);
 
-                // Capture screenshot of source
                 if (result.html) {
-                    console.log(`    Capturing source screenshot...`);
-                    const screenshotResult = await captureSourceScreenshot(result.html, source.id);
-                    if (screenshotResult.success) {
-                        console.log(`    ✓ Screenshot saved: ${screenshotResult.filename}`);
+                    const hasExistingScreenshots = getSourceScreenshots(source.id, 1).length > 0;
+                    const shouldCaptureScreenshot = changeData.status === 'changed' || !hasExistingScreenshots;
+
+                    if (shouldCaptureScreenshot) {
+                        console.log(`    Capturing source screenshot...`);
+                        const screenshotResult = await captureSourceScreenshot(result.html, source.id);
+                        if (screenshotResult.success) {
+                            console.log(`    ✓ Screenshot saved: ${screenshotResult.filename}`);
+                        } else {
+                            console.log(`    ✗ Screenshot failed: ${screenshotResult.error}`);
+                        }
                     } else {
-                        console.log(`    ✗ Screenshot failed: ${screenshotResult.error}`);
+                        console.log(`    ℹ No changes detected, skipping screenshot`);
                     }
                 }
 
@@ -230,27 +236,33 @@ async function main() {
         const htmlContent = generateHTML(
             config.title || 'Change Monitor',
             results,
-            config,
-            getRecentScreenshots()
+            config
         );
 
         fs.writeFileSync(path.join(__dirname, 'index.html'), htmlContent, 'utf-8');
         console.log('✓ Dashboard generated: index.html');
 
-        // Capture screenshot of the dashboard
-        console.log('Capturing screenshot...');
-        const screenshotFilename = getTimestampedFilename();
-        const screenshotResult = await captureScreenshot(htmlContent, screenshotFilename);
+        // Capture screenshot of dashboard only if there are changes or it's first time
+        const changed = results.filter(r => r.status === 'changed').length;
+        const hasExistingDashboardScreenshots = getRecentScreenshots().length > 0;
+        const shouldCaptureDashboard = changed > 0 || !hasExistingDashboardScreenshots;
 
-        if (screenshotResult.success) {
-            console.log(`✓ Screenshot saved: screenshots/${screenshotResult.filename}`);
-            cleanupOldScreenshots(10); // Keep only last 10 screenshots
+        if (shouldCaptureDashboard) {
+            console.log('Capturing dashboard screenshot...');
+            const screenshotFilename = getTimestampedFilename();
+            const screenshotResult = await captureScreenshot(htmlContent, screenshotFilename);
+
+            if (screenshotResult.success) {
+                console.log(`✓ Screenshot saved: screenshots/${screenshotResult.filename}`);
+                cleanupOldScreenshots(10); // Keep only last 10 screenshots
+            } else {
+                console.warn(`⚠ Screenshot capture failed: ${screenshotResult.error}`);
+            }
         } else {
-            console.warn(`⚠ Screenshot capture failed: ${screenshotResult.error}`);
+            console.log('ℹ No changes detected, skipping dashboard screenshot');
         }
 
         // Summary
-        const changed = results.filter(r => r.status === 'changed').length;
         const errors = results.filter(r => r.status === 'error').length;
 
         console.log('\n=== Summary ===');
