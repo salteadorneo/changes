@@ -13,7 +13,9 @@
   },
   "dependencies": {
     "canvas": "^3.2.1",
-    "jsdom": "^27.4.0",
+    "jsdom": "^27.4.0"
+  },
+  "optionalDependencies": {
     "puppeteer": "^24.36.1"
   }
 }
