@@ -1,5 +1,13 @@
 [
   {
+    "timestamp": "2026-01-30T19:44:09.414Z",
+    "status": "changed",
+    "hash": "e77c0e0f1595ba28b20bd232361d2081ea6e99a169fa6d240ecf7c06739129b2",
+    "previousHash": "0714a7b4d3fc12971934a1e636647b27b506e77e48c9a54fe07741b926b33e33",
+    "screenshotPath": "screenshots/sources/chollometro-2026-01-30T19-44-09.png",
+    "previousScreenshotPath": "screenshots/sources/chollometro-2026-01-30T19-15-49.png"
+  },
+  {
     "timestamp": "2026-01-30T19:15:49.780Z",
     "status": "changed",
     "hash": "0714a7b4d3fc12971934a1e636647b27b506e77e48c9a54fe07741b926b33e33",
