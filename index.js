@@ -3,7 +3,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { parseYAML } from './lib/yaml-parser.js';
 import { checkContent } from './lib/detector.js';
-import { generateHTML } from './lib/html.js';
+import { generateHTML, generateSourcePage } from './lib/html.js';
 import { captureScreenshot, getTimestampedFilename, cleanupOldScreenshots, getRecentScreenshots, captureSourceScreenshot, getSourceScreenshots } from './lib/screenshot.js';
 
 /**
@@ -92,6 +92,7 @@ function normalizeSource(source) {
 function ensureDirectories() {
     const dirs = [
         path.join(__dirname, 'api'),
+        path.join(__dirname, 'source'),
     ];
 
     dirs.forEach(dir => {
@@ -314,27 +315,43 @@ async function main() {
         fs.writeFileSync(path.join(__dirname, 'index.html'), htmlContent, 'utf-8');
         console.log('✓ Dashboard generated: index.html');
 
+        // Generate source detail pages
+        console.log('Generating source pages...');
+        results.forEach(result => {
+            const sourcePageHTML = generateSourcePage(
+                result.name,
+                result.id,
+                result.changesHistory || [],
+                config
+            );
+
+            const sourcePagePath = path.join(__dirname, 'source', `${result.id}.html`);
+            fs.writeFileSync(sourcePagePath, sourcePageHTML, 'utf-8');
+            console.log(`✓ Source page generated: source/${result.id}.html`);
+        });
+
         // Capture screenshot of dashboard only if there are changes or it's first time
-        const changed = results.filter(r => r.status === 'changed').length;
-        const hasExistingDashboardScreenshots = getRecentScreenshots().length > 0;
-        const shouldCaptureDashboard = changed > 0 || !hasExistingDashboardScreenshots;
+        // const changed = results.filter(r => r.status === 'changed').length;
+        // const hasExistingDashboardScreenshots = getRecentScreenshots().length > 0;
+        // const shouldCaptureDashboard = changed > 0 || !hasExistingDashboardScreenshots;
 
-        if (shouldCaptureDashboard) {
-            console.log('Capturing dashboard screenshot...');
-            const screenshotFilename = getTimestampedFilename();
-            const screenshotResult = await captureScreenshot(htmlContent, screenshotFilename);
+        // if (shouldCaptureDashboard) {
+        //     console.log('Capturing dashboard screenshot...');
+        //     const screenshotFilename = getTimestampedFilename();
+        //     const screenshotResult = await captureScreenshot(htmlContent, screenshotFilename);
 
-            if (screenshotResult.success) {
-                console.log(`✓ Screenshot saved: screenshots/${screenshotResult.filename}`);
-                cleanupOldScreenshots(10); // Keep only last 10 screenshots
-            } else {
-                console.warn(`⚠ Screenshot capture failed: ${screenshotResult.error}`);
-            }
-        } else {
-            console.log('ℹ No changes detected, skipping dashboard screenshot');
-        }
+        //     if (screenshotResult.success) {
+        //         console.log(`✓ Screenshot saved: screenshots/${screenshotResult.filename}`);
+        //         cleanupOldScreenshots(10); // Keep only last 10 screenshots
+        //     } else {
+        //         console.warn(`⚠ Screenshot capture failed: ${screenshotResult.error}`);
+        //     }
+        // } else {
+        //     console.log('ℹ No changes detected, skipping dashboard screenshot');
+        // }
 
         // Summary
+        const changed = results.filter(r => r.status === 'changed').length;
         const errors = results.filter(r => r.status === 'error').length;
 
         console.log('\n=== Summary ===');
