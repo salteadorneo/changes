@@ -138,6 +138,56 @@ function loadChangeData(sourceId) {
 }
 
 /**
+ * Load changes history for a source
+ * @param {string} sourceId
+ * @returns {Array}
+ */
+function loadChangesHistory(sourceId) {
+    const historyFile = path.join(__dirname, 'api', sourceId, 'history.json');
+
+    if (!fs.existsSync(historyFile)) {
+        return [];
+    }
+
+    try {
+        return JSON.parse(fs.readFileSync(historyFile, 'utf-8'));
+    } catch (error) {
+        console.error(`Error reading changes history for ${sourceId}:`, error);
+        return [];
+    }
+}
+
+/**
+ * Save change to history
+ * @param {string} sourceId
+ * @param {Object} changeEntry
+ */
+function addToChangesHistory(sourceId, changeEntry) {
+    const apiDir = path.join(__dirname, 'api', sourceId);
+
+    if (!fs.existsSync(apiDir)) {
+        fs.mkdirSync(apiDir, { recursive: true });
+    }
+
+    const historyFile = path.join(apiDir, 'history.json');
+    const history = loadChangesHistory(sourceId);
+
+    // Add new entry at the beginning
+    history.unshift({
+        timestamp: new Date().toISOString(),
+        status: changeEntry.status,
+        hash: changeEntry.hash,
+        previousHash: changeEntry.previousHash,
+        screenshotPath: changeEntry.screenshotPath || null
+    });
+
+    // Keep last 50 changes
+    const trimmedHistory = history.slice(0, 50);
+
+    fs.writeFileSync(historyFile, JSON.stringify(trimmedHistory, null, 2), 'utf-8');
+}
+
+/**
  * Check all sources and generate reports
  */
 async function main() {
@@ -175,6 +225,15 @@ async function main() {
 
                 saveChangeData(source.id, changeData);
 
+                // Record change in history if status changed
+                if (changeData.status === 'changed') {
+                    addToChangesHistory(source.id, {
+                        status: 'changed',
+                        hash: result.currentHash,
+                        previousHash: previousHash
+                    });
+                }
+
                 if (result.html) {
                     const hasExistingScreenshots = getSourceScreenshots(source.id, 1).length > 0;
                     const shouldCaptureScreenshot = changeData.status === 'changed' || !hasExistingScreenshots;
@@ -184,6 +243,19 @@ async function main() {
                         const screenshotResult = await captureSourceScreenshot(result.html, source.id);
                         if (screenshotResult.success) {
                             console.log(`    ✓ Screenshot saved: ${screenshotResult.filename}`);
+                            // Update history with screenshot paths
+                            if (changeData.status === 'changed') {
+                                const allScreenshots = getSourceScreenshots(source.id, 100); // Get all
+                                const previousScreenshot = allScreenshots.length > 1 ? allScreenshots[1] : null; // Second is previous
+
+                                const history = loadChangesHistory(source.id);
+                                if (history.length > 0) {
+                                    history[0].screenshotPath = screenshotResult.path;
+                                    history[0].previousScreenshotPath = previousScreenshot?.path || null;
+                                    const historyFile = path.join(__dirname, 'api', source.id, 'history.json');
+                                    fs.writeFileSync(historyFile, JSON.stringify(history, null, 2), 'utf-8');
+                                }
+                            }
                         } else {
                             console.log(`    ✗ Screenshot failed: ${screenshotResult.error}`);
                         }
@@ -200,7 +272,7 @@ async function main() {
                     previousHash: previousHash,
                     timestamp: changeData.timestamp,
                     error: changeData.error,
-                    screenshots: getSourceScreenshots(source.id, 3)
+                    changesHistory: loadChangesHistory(source.id)
                 });
 
                 if (changeData.status === 'changed') {

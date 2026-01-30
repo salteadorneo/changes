@@ -3,14 +3,10 @@ language: es
 report: https://github.com/example/changes/issues/new
 
 sources:
-  - name: Petanca
-    url: http://petanca.net
+  - name: chollometro
+    url: https://www.chollometro.com/
     type: content
     
-  # - name: Example HTML Page
-  #   url: https://example.com/page.html
-  #   type: html
-  #   selector: .version
-
-  - name: Google
-    url: https://google.es
+  - name: gog
+    url: https://www.gog.com/en/
+    type: content
