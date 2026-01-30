@@ -24,67 +24,42 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '18'
+          node-version: '20'
+          cache: 'npm'
 
-      - name: Install system dependencies for Puppeteer
+      - name: Install dependencies
+        run: npm ci --prefer-offline --no-audit
+
+      - name: Install Chromium
         run: |
-          sudo apt-get update
-          sudo apt-get install -y chromium-browser
           npm install --save-optional puppeteer
+          npx puppeteer browsers install chrome
 
       - name: Run change detection
         run: npm run build
+        env:
+          PUPPETEER_SKIP_DOWNLOAD: true
+          PUPPETEER_EXECUTABLE_PATH: /usr/bin/chromium-browser
 
-      - name: Cleanup old screenshots
-        run: npm run cleanup
+      # - name: Cleanup old screenshots
+      #   run: npm run cleanup
 
-      - name: Upload to GitHub Pages
-        uses: actions/upload-pages-artifact@v2
-        with:
-          path: '.'
-
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v2
-
-      - name: Commit changes
+      - name: Commit and push changes
         continue-on-error: true
         run: |
           git config user.name "Changes Monitor"
           git config user.email "changes-monitor@github.local"
           git add -A
-          git commit -m "[skip ci] Changes detected" || true
+          git commit -m "[skip ci] Changes detected $(date -u +'%Y-%m-%d %H:%M:%S')" || true
           git push
 
-      # Optional: Send notification if changes detected
-      # Uncomment to enable notifications
-      
-      # - name: Check for changes
-      #   id: check_changes
-      #   run: |
-      #     # Check if any source has changed status
-      #     if grep -r '"status": "changed"' api/ 2>/dev/null; then
-      #       echo "changes_detected=true" >> $GITHUB_OUTPUT
-      #     else
-      #       echo "changes_detected=false" >> $GITHUB_OUTPUT
-      #     fi
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: '.'
+        continue-on-error: true
 
-      # - name: Notify Slack
-      #   if: steps.check_changes.outputs.changes_detected == 'true'
-      #   uses: slackapi/slack-github-action@v1
-      #   with:
-      #     payload: |
-      #       {
-      #         "text": "🔔 Changes detected!",
-      #         "blocks": [
-      #           {
-      #             "type": "section",
-      #             "text": {
-      #               "type": "mrkdwn",
-      #               "text": "View results: ${{ github.server_url }}/${{ github.repository }}/tree/${{ github.ref_name }}"
-      #             }
-      #           }
-      #         ]
-      #       }
-      #   env:
-      #     SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK }}
+      - name: Deploy pages
+        uses: actions/deploy-pages@v3
+        continue-on-error: true
