@@ -1,0 +1,13 @@
+title: Change Monitor
+language: es
+report: https://github.com/example/changes/issues/new
+
+sources:
+  - name: Petanca
+    url: http://petanca.net
+    type: content
+    
+  # - name: Example HTML Page
+  #   url: https://example.com/page.html
+  #   type: html
+  #   selector: .version
