@@ -1,12 +1,7 @@
 title: Change Monitor
 language: es
-report: https://github.com/example/changes/issues/new
 
 sources:
   - name: chollometro
     url: https://www.chollometro.com/
-    type: content
-    
-  - name: gog
-    url: https://www.gog.com/en/
     type: content
