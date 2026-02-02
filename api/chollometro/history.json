@@ -1,5 +1,13 @@
 [
   {
+    "timestamp": "2026-02-02T08:48:28.911Z",
+    "status": "changed",
+    "hash": "dfead98ea9a24c87380274ca16da024caa8cdff147f0688fcfcc9a9dda71ae5a",
+    "previousHash": "1f2c7d26eb4974837e1d625e446208f79ed98aff3ac32dc0ae8ab69250cb35e0",
+    "screenshotPath": "screenshots/sources/chollometro-2026-02-02T08-48-28.png",
+    "previousScreenshotPath": "screenshots/sources/chollometro-2026-02-02T08-23-49.png"
+  },
+  {
     "timestamp": "2026-02-02T08:23:49.761Z",
     "status": "changed",
     "hash": "1f2c7d26eb4974837e1d625e446208f79ed98aff3ac32dc0ae8ab69250cb35e0",
@@ -390,13 +398,5 @@
     "previousHash": "efaf1ee7aea0b5c82a0872139114b1ad2dacec99a1bec1774702a589661d2468",
     "screenshotPath": "screenshots/sources/chollometro-2026-02-01T14-29-12.png",
     "previousScreenshotPath": "screenshots/sources/chollometro-2026-02-01T14-12-40.png"
-  },
-  {
-    "timestamp": "2026-02-01T14:12:40.653Z",
-    "status": "changed",
-    "hash": "efaf1ee7aea0b5c82a0872139114b1ad2dacec99a1bec1774702a589661d2468",
-    "previousHash": "af27efc404b23a8304206a71e7fd9bda80160cab71276c05825322d338e626c4",
-    "screenshotPath": "screenshots/sources/chollometro-2026-02-01T14-12-40.png",
-    "previousScreenshotPath": "screenshots/sources/chollometro-2026-02-01T13-57-30.png"
   }
 ]
