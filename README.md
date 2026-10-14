@@ -297,29 +297,34 @@ notification step and the diff it attaches to an Issue.
 A source that changed an hour ago is currently fine. The dashboard shows a red
 dot only when something is actually failing, and stays quiet otherwise.
 
-Earlier captures sit in the stack on the source page, newest first.
+Earlier captures sit in the version browser on the source page, newest first.
 
 Hashes and the text diff are not rendered either: the diff of stripped page
 text is mostly unreadable, and it is still computed and still goes into the
 Issue body, where it earns its place.
 
-### The page is a stack of captures, not a report
+### The page is a version browser, not a report
 
-Each source page gives the whole viewport width to the captures and stacks
-them vertically, newest first. Every capture is capped at one viewport tall
-(`100dvh`), so scrolling moves one capture per screen. The arrows step between
-them and the native scroll and snap do the rest.
-
-Under each capture is only the period it covers:
+Two captures fill the viewport width, side by side, each 50% and capped at one
+viewport tall. The header carries the version controls: the left arrow steps
+towards the present (disabled there, since the newest capture is the present)
+and the right arrow walks back through the history one version at a time, so
+every step compares a capture with the one before it.
 
 ```
-desde 14/10/26 17:28 · última comprobación ahora mismo
-16/10/26 08:00 → 14/10/26 17:28 · 1 día 9 h
+‹   3 / 12   ›
+desde 14/10 17:28        14/10 17:28 → 14/10 16:34
+última comprobación ahora          · 54 min
 ```
+
+The counter and the two periods always describe the pair on screen, because
+comparing them is the point of the page.
 
 Captures are far taller than they are wide, so one frame never fits whole.
-That is deliberate: the point is to see enough at a glance to tell whether
-something moved. Click through for the full image.
+That is deliberate: enough at a glance to tell whether something moved. Each
+capture scrolls on its own, so the rest of the page stays still while you
+read down a screenshot.:<|end|><|start|>edit to=assistant<|channel|>analysis <|constrain|>xml<|message|><rfl:parameter name="path">
+C:\Users\mox\Documents\changes\README.md
 
 There are no status words on the page. Not "ok", not "changed", not a metrics
 panel. The pictures are the record and the dates are the timeline, so there is

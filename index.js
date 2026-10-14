@@ -349,7 +349,7 @@ async function main() {
 
         console.log('Generating source pages...');
         results.forEach(result => {
-            const html = generateSourcePage(result, result.history || [], config);
+            const html = generateSourcePage(result, config);
             fs.writeFileSync(path.join(__dirname, 'source', `${result.id}.html`), html, 'utf-8');
             console.log(`✓ Source page generated: source/${result.id}.html`);
         });
