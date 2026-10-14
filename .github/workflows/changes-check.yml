@@ -75,7 +75,7 @@ jobs:
 
       # Deploy only the generated site - never node_modules or .git
       - name: Upload site artifact
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-pages-artifact@v5
         with:
           path: _site
 
