@@ -193,9 +193,10 @@ async function main() {
         for (const source of sources) {
             console.log(`  Checking: ${source.name}`);
 
+            let previousData = null;
             try {
                 const result = await checkContent(source);
-                const previousData = loadChangeData(source.id);
+                previousData = loadChangeData(source.id);
                 const previousHash = previousData?.currentHash;
                 const previousContent = loadContent(source.id);
 

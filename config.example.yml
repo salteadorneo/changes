@@ -18,30 +18,28 @@ archive:
 
 # List of sources to monitor
 sources:
-  # Example 1: Monitoring a JSON API
-  - name: Example API Version
-    url: https://api.github.com/repos/octocat/Hello-World
+  # Example 1: Monitoring a JSON API (npm registry — no auth, no rate limit issues)
+  - name: Lodash Latest Version
+    url: https://registry.npmjs.org/lodash/latest
     type: json
-    # Use dot notation to access nested values
-    # This will extract the "id" field from the response
-    jsonPath: id
-    # Optional: custom timeout in milliseconds (default 10000)
+    # Extract the "version" field from the JSON response
+    jsonPath: version
     timeout: 10000
 
   # Example 2: Monitoring HTML content with CSS selector
-  - name: Example Website Version
-    url: https://github.com
+  - name: Example Domain Title
+    url: https://example.com
     type: html
-    # Extract text from an HTML element
-    # Supports: .class-name, #element-id, [data-attr], tag names
-    selector: "meta[name='description']"
+    # Extract the text inside the <h1> element
+    selector: h1
     timeout: 10000
 
-  # Example 3: Monitoring plain text content
-  - name: Example Text File
-    url: https://raw.githubusercontent.com/octocat/Hello-World/master/README.md
+  # Example 3: Monitoring plain text content (markdown file)
+  - name: Spoon-Knife README
+    url: https://raw.githubusercontent.com/octocat/Spoon-Knife/master/README.md
     type: content
     timeout: 10000
+
   # Cookie banners are dismissed before the capture (rejecting is preferred).
   # Set to false to photograph the banner as-is.
   # consent: false
