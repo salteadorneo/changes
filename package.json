@@ -16,6 +16,6 @@
     "jsdom": "^27.4.0"
   },
   "optionalDependencies": {
-    "puppeteer": "^24.36.1"
+    "puppeteer": "^24.43.1"
   }
 }
