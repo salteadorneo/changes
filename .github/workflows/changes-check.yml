@@ -23,6 +23,9 @@ jobs:
   check:
     env:
       IS_TEMPLATE: ${{ secrets.IS_TEMPLATE }}
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy-pages.outputs.page_url }}
     runs-on: ubuntu-latest
 
     steps:
@@ -85,6 +88,7 @@ jobs:
 
       # Skip this step if you are not publishing to GitHub Pages
       - name: Deploy to GitHub Pages
+        id: deploy-pages
         uses: actions/deploy-pages@v4
 
       # Runs after the deploy so the links in the issue are already live.
