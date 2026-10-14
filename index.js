@@ -33,7 +33,10 @@ function normalizeSource(source) {
         selector: source.selector,
         jsonPath: source.jsonPath,
         timeout: source.timeout || 10000,
-        screenshots: source.screenshots !== false
+        screenshots: source.screenshots !== false,
+        // Dismiss the cookie banner before capturing; set `consent: false`
+        // on a source to shoot the banner as-is
+        consent: source.consent !== false
     };
 }
 
@@ -211,7 +214,9 @@ async function main() {
 
                 if (capture) {
                     console.log(`    Capturing screenshot (${reason})...`);
-                    shot = await captureScreenshot(source.url, source.id);
+                    shot = await captureScreenshot(source.url, source.id, {
+                        consent: source.consent
+                    });
 
                     if (shot.error) {
                         captureStatus = shot.blocked ? 'blocked' : 'failed';

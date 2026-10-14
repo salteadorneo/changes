@@ -89,6 +89,22 @@ shows the newest one, and each source page renders the pair above the diff.
 Because captures are tied to changes, a source that never changes keeps a
 single image forever rather than accumulating one per run.
 
+### Cookie banners
+
+A consent banner sits exactly where the interesting content is, so every
+capture dismisses it first:
+
+1. find a visible button whose text matches a known consent label, preferring
+   **reject** over accept - that way the monitor never quietly opts anyone into
+   tracking, and the reject button usually gives the smaller banner
+2. click it for real (the button is tagged in the page and clicked from Node,
+   so banners that listen for pointer events still respond)
+3. if the dialog is still up afterwards, hide it: a dozen known containers
+   (OneTrust, Cookiebot, Usercentrics, Didomi, Quantcast...) plus generic
+   `[id*="cookie"]` style rules
+
+Per source, `consent: false` skips all of it and photographs the banner as-is.
+
 ### Capture size
 
 Captures are 1120px wide and capped at 2400px tall, which is about three
@@ -142,6 +158,11 @@ not wired in.
 `PUPPETEER_EXECUTABLE_PATH`, `CHROME_PATH` and the usual install paths; the
 GitHub `ubuntu-latest` runner already ships one. If none is found the run logs
 a warning and continues without pictures.
+
+Brave is Chromium-based, so it is in the lookup list too and will be used if it
+is installed. It is not installed on the runners: Brave Shields is a browser
+feature rather than something automation can rely on, and adding ~100 MB per
+run to install it is not worth it when the cookie banner can simply be closed.
 
 ## Try it locally
 
@@ -252,7 +273,7 @@ These are **git-ignored** and rebuilt on every run:
 
 ```
 index.html                    # Dashboard
-source/<id>.html              # Per-source check log
+source/<id>.html              # Per-source capture carousel
 api/<id>/status.json          # State of the last check
 api/<id>/history.json         # One entry per CHECK (last 200)
 api/<id>/content.txt          # Last seen content, used to detect changes
@@ -262,38 +283,52 @@ screenshots/<id>/*.png        # Screenshot archive
 ### The history is a log of checks, not of changes
 
 An hourly source that never changes would otherwise have an empty history and
-the page would have nothing to show. So `history.json` gets one entry per
-check:
+nothing to show. So `history.json` gets one entry per check:
 
 ```json
 { "timestamp": "...", "status": "unchanged", "hash": "a8bf...", "screenshot": null }
 ```
 
-The source page renders that log as a timeline of thumbnails. A check that did
-not capture reuses the capture that was already in effect, which is what makes
-the log readable instead of the same picture repeated N times.
+The dashboard only needs `status.json` for this; the log is what feeds the
+notification step and the diff it attaches to an Issue.
 
 ### Changed is an event, not a state
 
-A source that changed an hour ago is currently fine. So the dashboard shows
-health (ok / error) and never a lingering "changed" badge - the change is
-reported once, as a GitHub Issue, and after that the dot is green again.
+A source that changed an hour ago is currently fine. The dashboard shows a red
+dot only when something is actually failing, and stays quiet otherwise.
 
-Better still, the source page does not name the change at all. Every capture
-is treated as a **version with a lifespan**:
+Earlier captures sit in the stack on the source page, newest first.
 
-- the current capture, labelled with when it was taken and when the source was
-  last checked
-- the one it replaced, same size, labelled with when it was taken and **until
-  when it lasted**
-
-Two pictures side by side with their time spans already say what happened.
 Hashes and the text diff are not rendered either: the diff of stripped page
 text is mostly unreadable, and it is still computed and still goes into the
 Issue body, where it earns its place.
 
-Earlier captures sit in a horizontal strip below, and the check log goes
-further back still.
+### The page is a stack of captures, not a report
+
+Each source page gives the whole viewport width to the captures and stacks
+them vertically, newest first. Every capture is capped at one viewport tall
+(`100dvh`), so scrolling moves one capture per screen. The arrows step between
+them and the native scroll and snap do the rest.
+
+Under each capture is only the period it covers:
+
+```
+desde 14/10/26 17:28 · última comprobación ahora mismo
+16/10/26 08:00 → 14/10/26 17:28 · 1 día 9 h
+```
+
+Captures are far taller than they are wide, so one frame never fits whole.
+That is deliberate: the point is to see enough at a glance to tell whether
+something moved. Click through for the full image.
+
+There are no status words on the page. Not "ok", not "changed", not a metrics
+panel. The pictures are the record and the dates are the timeline, so there is
+no third thing to keep in sync - and no way for a badge to disagree with what
+the captures actually show. A change is announced once, as a GitHub Issue.
+
+The source page carries no metrics block (type, HTTP, duration, response
+size) for the same reason. Those are still recorded in `api/<id>/status.json`
+if you ever want them programmatically.
 
 ## How state is stored
 
@@ -369,7 +404,7 @@ index.js               # Orchestrator: config, loop, files
 lib/detector.js        # Fetching, extraction, hashing
 lib/diff.js            # LCS line diff (Issue bodies only, not the site)
 lib/screenshot.js      # Capture, bot-check detection, retention
-lib/html.js            # Dashboard, check log and page generation
+lib/html.js            # Dashboard and carousel generation
 lib/yaml-parser.js     # Minimal YAML parser
 lib/utils.js           # Ids, dates, relative times, formatting
 lang/{en,es}.json      # Every string in the interface

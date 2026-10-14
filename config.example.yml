@@ -42,7 +42,10 @@ sources:
     url: https://raw.githubusercontent.com/octocat/Hello-World/master/README.md
     type: content
     timeout: 10000
-  # Optional: set to false to never capture screenshots for this source
+  # Cookie banners are dismissed before the capture (rejecting is preferred).
+  # Set to false to photograph the banner as-is.
+  # consent: false
+  # Same for screenshots entirely:
   # screenshots: false
 
 # Optional: report/feedback link
