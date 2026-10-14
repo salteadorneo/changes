@@ -89,6 +89,14 @@ shows the newest one, and each source page renders the pair above the diff.
 Because captures are tied to changes, a source that never changes keeps a
 single image forever rather than accumulating one per run.
 
+### Capture size
+
+Captures are 1120px wide and capped at 2400px tall, which is about three
+viewports: enough to see a price or a counter, and a third of the weight. A
+full 1280x8000 capture of a long page ran to 1.9 MB each; the same page at
+1120x2400 is 0.56 MB. The 2400px cap does cut very long pages off at the
+bottom - raise `FULL_PAGE_MAX_HEIGHT` in `lib/screenshot.js` if you need more.
+
 ### Retention
 
 Three tiers, applied after each run in `lib/screenshot.js`:
@@ -244,12 +252,48 @@ These are **git-ignored** and rebuilt on every run:
 
 ```
 index.html                    # Dashboard
-source/<id>.html              # Per-source change timeline
-api/<id>/status.json          # Current hash and status
-api/<id>/history.json         # Last 50 changes with diffs and screenshots
-api/<id>/content.txt          # Last seen content, used to build the next diff
+source/<id>.html              # Per-source check log
+api/<id>/status.json          # State of the last check
+api/<id>/history.json         # One entry per CHECK (last 200)
+api/<id>/content.txt          # Last seen content, used to detect changes
 screenshots/<id>/*.png        # Screenshot archive
 ```
+
+### The history is a log of checks, not of changes
+
+An hourly source that never changes would otherwise have an empty history and
+the page would have nothing to show. So `history.json` gets one entry per
+check:
+
+```json
+{ "timestamp": "...", "status": "unchanged", "hash": "a8bf...", "screenshot": null }
+```
+
+The source page renders that log as a timeline of thumbnails. A check that did
+not capture reuses the capture that was already in effect, which is what makes
+the log readable instead of the same picture repeated N times.
+
+### Changed is an event, not a state
+
+A source that changed an hour ago is currently fine. So the dashboard shows
+health (ok / error) and never a lingering "changed" badge - the change is
+reported once, as a GitHub Issue, and after that the dot is green again.
+
+Better still, the source page does not name the change at all. Every capture
+is treated as a **version with a lifespan**:
+
+- the current capture, labelled with when it was taken and when the source was
+  last checked
+- the one it replaced, same size, labelled with when it was taken and **until
+  when it lasted**
+
+Two pictures side by side with their time spans already say what happened.
+Hashes and the text diff are not rendered either: the diff of stripped page
+text is mostly unreadable, and it is still computed and still goes into the
+Issue body, where it earns its place.
+
+Earlier captures sit in a horizontal strip below, and the check log goes
+further back still.
 
 ## How state is stored
 
@@ -323,12 +367,12 @@ the deployment automatically.
 ```
 index.js               # Orchestrator: config, loop, files
 lib/detector.js        # Fetching, extraction, hashing
-lib/diff.js            # LCS line diff + word-level diff
-lib/screenshot.js      # Capture, archive listing, retention
-lib/html.js            # Dashboard and timeline generation
+lib/diff.js            # LCS line diff (Issue bodies only, not the site)
+lib/screenshot.js      # Capture, bot-check detection, retention
+lib/html.js            # Dashboard, check log and page generation
 lib/yaml-parser.js     # Minimal YAML parser
-lib/utils.js           # Ids, dates and JSON helpers
-lang/{en,es}.json      # UI strings
+lib/utils.js           # Ids, dates, relative times, formatting
+lang/{en,es}.json      # Every string in the interface
 scripts/notify.js      # GitHub Issue notifications
 ```
 

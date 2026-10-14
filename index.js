@@ -38,6 +38,29 @@ function normalizeSource(source) {
 }
 
 /**
+ * Each stored capture is a version with a lifespan.
+ *
+ * The newest one is still current, so it has no end; every older one ended
+ * when the next capture replaced it. Rendering it this way means the page
+ * never has to talk about a "changed" state: the pictures and their time
+ * spans say it on their own.
+ *
+ * @param {string} sourceId
+ * @param {string} lastCheck - ISO timestamp of the last check
+ * @returns {Array<{path: string, takenAt: string, until: string|null, lastCheck: string}>}
+ */
+export function buildVersions(sourceId, lastCheck) {
+    const shots = listScreenshots(sourceId); // newest first
+
+    return shots.map((shot, i) => ({
+        path: shot.path,
+        takenAt: shot.savedAt,
+        until: i === 0 ? null : shots[i - 1].savedAt,
+        lastCheck: i === 0 ? lastCheck : shot.savedAt
+    }));
+}
+
+/**
  * Decide whether this run should capture a screenshot.
  *
  * The rule the project is built around:
@@ -77,7 +100,7 @@ export function shouldCapture(source, status, lastCaptureStatus) {
 export function referencedScreenshots(sourceId) {
     const refs = new Set();
 
-    for (const entry of loadChangesHistory(sourceId)) {
+    for (const entry of loadHistory(sourceId)) {
         if (entry.screenshot) refs.add(entry.screenshot);
         if (entry.previousScreenshot) refs.add(entry.previousScreenshot);
     }
@@ -108,25 +131,35 @@ function loadChangeData(sourceId) {
     try { return JSON.parse(fs.readFileSync(file, 'utf-8')); } catch { return null; }
 }
 
-function loadChangesHistory(sourceId) {
+/**
+ * The log is one entry per CHECK, not per change.
+ *
+ * A source checked hourly and never changing would otherwise have an empty
+ * history, and the page would have nothing to show. Entries carry the
+ * screenshot that was in effect at that moment; when a check did not capture,
+ * the renderer walks back to the nearest earlier one.
+ */
+const MAX_HISTORY = 200;
+
+function loadHistory(sourceId) {
     const file = path.join(__dirname, 'api', sourceId, 'history.json');
     if (!fs.existsSync(file)) return [];
     try { return JSON.parse(fs.readFileSync(file, 'utf-8')); } catch { return []; }
 }
 
-function addToChangesHistory(sourceId, entry) {
-    const history = loadChangesHistory(sourceId);
+function addCheck(sourceId, entry) {
+    const history = loadHistory(sourceId);
     history.unshift({
-        timestamp: new Date().toISOString(),
+        timestamp: entry.timestamp,
         status: entry.status,
         hash: entry.hash,
-        previousHash: entry.previousHash,
-        diff: entry.diff || null,
         screenshot: entry.screenshot || null,
+        // Only meaningful on a change, and only for the issue body
+        diff: entry.diff || null,
         previousScreenshot: entry.previousScreenshot || null
     });
     const file = path.join(apiDir(sourceId), 'history.json');
-    fs.writeFileSync(file, JSON.stringify(history.slice(0, 50), null, 2), 'utf-8');
+    fs.writeFileSync(file, JSON.stringify(history.slice(0, MAX_HISTORY), null, 2), 'utf-8');
 }
 
 function loadContent(sourceId) {
@@ -207,18 +240,26 @@ async function main() {
 
                 if (status === 'changed') {
                     const diff = previousContent ? computeDiff(previousContent, result.content) : null;
-                    addToChangesHistory(source.id, {
+                    console.log(`    ✓ CHANGED - Hash: ${result.currentHash.substring(0, 8)}`);
+                    addCheck(source.id, {
+                        timestamp,
                         status: 'changed',
                         hash: result.currentHash,
-                        previousHash,
                         diff,
                         screenshot: shot && !shot.error ? shot.path : null,
                         previousScreenshot: previousShot ? previousShot.path : null
                     });
-                    console.log(`    ✓ CHANGED - Hash: ${result.currentHash.substring(0, 8)}`);
                 } else {
                     console.log(`    ✓ unchanged - Hash: ${result.currentHash.substring(0, 8)}`);
+                    addCheck(source.id, {
+                        timestamp,
+                        status: 'unchanged',
+                        hash: result.currentHash,
+                        screenshot: shot && !shot.error ? shot.path : null
+                    });
                 }
+
+                const history = loadHistory(source.id);
 
                 results.push({
                     id: source.id,
@@ -229,18 +270,16 @@ async function main() {
                     jsonPath: source.jsonPath,
                     timeout: source.timeout,
                     status,
-                    currentHash: result.currentHash,
-                    previousHash,
                     lastCheck: timestamp,
                     meta: result.meta,
-                    content: result.content,
                     error: null,
                     captureStatus,
                     captureReason,
                     thumbnail: listScreenshots(source.id)[0]?.path || null,
-                    changesCount: loadChangesHistory(source.id).length,
+                    versions: buildVersions(source.id, timestamp),
                     checks: (previousData?.checks || 0) + 1,
-                    changesHistory: loadChangesHistory(source.id)
+                    changesCount: history.filter(entry => entry.status === 'changed').length,
+                    history
                 });
 
             } catch (error) {
@@ -257,13 +296,29 @@ async function main() {
                     error: error.message
                 });
 
+                addCheck(source.id, {
+                    timestamp: errorTimestamp,
+                    status: 'error',
+                    hash: null
+                });
+
                 results.push({
                     id: source.id,
                     name: source.name,
+                    url: source.url,
+                    type: source.type,
+                    selector: source.selector,
+                    jsonPath: source.jsonPath,
+                    timeout: source.timeout,
                     status: 'error',
+                    lastCheck: errorTimestamp,
                     error: error.message,
+                    captureStatus: 'skipped',
                     thumbnail: listScreenshots(source.id)[0]?.path || null,
-                    changesHistory: loadChangesHistory(source.id)
+                    versions: buildVersions(source.id, errorTimestamp),
+                    checks: (previousData?.checks || 0) + 1,
+                    changesCount: 0,
+                    history: loadHistory(source.id)
                 });
             }
         }
@@ -289,7 +344,7 @@ async function main() {
 
         console.log('Generating source pages...');
         results.forEach(result => {
-            const html = generateSourcePage(result, result.changesHistory || [], config);
+            const html = generateSourcePage(result, result.history || [], config);
             fs.writeFileSync(path.join(__dirname, 'source', `${result.id}.html`), html, 'utf-8');
             console.log(`✓ Source page generated: source/${result.id}.html`);
         });

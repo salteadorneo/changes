@@ -11,6 +11,7 @@ import {
     renderDiff,
     resolveSiteUrl
 } from './notify.js';
+import { generateId } from '../lib/utils.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, '..');
@@ -223,12 +224,20 @@ describe('pendingChange', () => {
 });
 
 describe('loadSources', () => {
-    test('derives ids the same way index.js does', () => {
+    test('derives every id exactly the way index.js does', () => {
         const sources = loadSources();
-        const estopa = sources.find(s => s.name === 'estopa');
 
-        assert.ok(estopa, 'config.yml should expose the estopa source');
-        assert.equal(estopa.id, 'estopa');
-        assert.equal(estopa.url, 'https://www.estopa.com');
+        assert.ok(sources.length > 0, 'config.yml should expose at least one source');
+        for (const source of sources) {
+            assert.equal(source.id, generateId(source.name), `"${source.name}" id mismatch`);
+            assert.ok(source.url, `"${source.name}" has no url`);
+        }
+    });
+
+    test('ids are usable as filenames', () => {
+        for (const source of loadSources()) {
+            assert.doesNotMatch(source.id, /[^a-z0-9-]/);
+            assert.ok(!source.id.startsWith('-') && !source.id.endsWith('-'));
+        }
     });
 });
