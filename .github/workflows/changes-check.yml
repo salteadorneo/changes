@@ -36,12 +36,14 @@ jobs:
       # puppeteer-core is an optional dependency and uses the Chrome that
       # already ships with the runner - no browser download needed.
       - name: Install dependencies
+        if: ${{ secrets.IS_TEMPLATE != 'true' }}
         run: npm ci --no-audit
 
       # State (hashes, history and screenshots) lives in the Actions cache
       # instead of in the repository, so nothing generated is ever committed.
       # Delete the "Save state" step below if you don't need change history.
       - name: Restore state
+        if: ${{ secrets.IS_TEMPLATE != 'true' }}
         uses: actions/cache/restore@v4
         with:
           path: |
@@ -51,17 +53,24 @@ jobs:
           restore-keys: changes-state-
 
       - name: Run change detection
+        if: ${{ secrets.IS_TEMPLATE != 'true' }}
         run: npm run build
 
       - name: Prepare site
         run: |
           mkdir -p _site
-          cp index.html _site/
+          if [ "${{ secrets.IS_TEMPLATE }}" = "true" ]; then
+            # Template repository: publish the marketing landing page.
+            cp landing/index.html _site/index.html
+          else
+            cp index.html _site/
+            touch _site/.nojekyll
+            for dir in source api screenshots; do
+              if [ -d "$dir" ]; then cp -r "$dir" _site/; fi
+            done
+          fi
           if [ -f CNAME ]; then cp CNAME _site/; fi
           touch _site/.nojekyll
-          for dir in source api screenshots; do
-            if [ -d "$dir" ]; then cp -r "$dir" _site/; fi
-          done
           ls -R _site
 
       # Deploy only the generated site - never node_modules or .git
@@ -77,6 +86,7 @@ jobs:
       # Runs after the deploy so the links in the issue are already live.
       # Never fails the run: a broken notification must not block the site.
       - name: Notify changes as GitHub Issues
+        if: ${{ secrets.IS_TEMPLATE != 'true' }}
         continue-on-error: true
         run: npm run notify
         env:
@@ -86,6 +96,7 @@ jobs:
       # Must come last: the notify step writes api/<id>/notified.json and that
       # file has to land in the cache, otherwise the same change alerts twice.
       - name: Save state
+        if: ${{ secrets.IS_TEMPLATE != 'true' }}
         uses: actions/cache/save@v4
         with:
           path: |

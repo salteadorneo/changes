@@ -10,7 +10,7 @@ node_modules/
 /source/
 /screenshots/
 /_site/
-/config.yml
+config.yml
 
 # OS / editor
 .DS_Store
