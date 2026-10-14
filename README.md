@@ -101,12 +101,70 @@ Screenshots still referenced by `api/<id>/history.json` are never deleted, even
 if that pushes past `maxTotal` - otherwise the timeline would show broken
 before/after images.
 
+### Bot checks (Cloudflare and friends)
+
+Some sites answer a plain HTTP request fine but show an anti-bot interstitial
+to a real browser. In that case:
+
+- change detection still works, because it uses plain `fetch`
+- the capture is **not** saved. Archiving the challenge page would be worse
+  than having no picture: it looks like the site but is not, and it would
+  poison every before/after comparison built on it
+- the dashboard shows **"Captura bloqueada"** with a hint, instead of quietly
+  showing the old thumbnail
+- `status.json` records `captureStatus: "blocked"` and what was detected, and
+  the next run retries on its own
+
+Three things reduce the odds of being challenged at all: a plain desktop
+Chrome user agent, `--disable-blink-features=AutomationControlled` (removes
+`navigator.webdriver`), and a per-source browser profile under
+`screenshots/.profiles/` so cookies survive between runs.
+
+After the page loads, the tool waits up to 15s for an interstitial to clear by
+itself, which managed challenges usually do.
+
+If a site stays blocked, the options are to live without its screenshot or to
+point the capture at a browser service that solves challenges for you
+(Browserless, ScrapingBee...). That is a paid dependency and is deliberately
+not wired in.
+
 ### Browser
 
 `puppeteer-core` does not download a browser. The tool looks for Chrome in
 `PUPPETEER_EXECUTABLE_PATH`, `CHROME_PATH` and the usual install paths; the
 GitHub `ubuntu-latest` runner already ships one. If none is found the run logs
 a warning and continues without pictures.
+
+## Try it locally
+
+There is a small test server in `examples/` so you can exercise the whole
+pipeline without depending on anyone else's website:
+
+```bash
+npm run example          # http://localhost:8787
+```
+
+| Route | What it does |
+| --- | --- |
+| `/` | Product page whose price and stock change every `?every` seconds (default 20) |
+| `/json` | JSON API, value changes on the same tick |
+| `/slow?delay=5` | Responds late, for testing timeouts |
+| `/boom` | Always 500, for testing error handling |
+
+Then point the monitor at it:
+
+```bash
+cp examples/config.example.local.yml config.yml
+npm run build
+```
+
+That config exercises all three source types plus an error case. Run it twice
+about five seconds apart and you get the full cycle: first run captures the
+initial thumbnail, the second detects the change and stores the before/after
+pair with the diff. Add `?every=2` to make it change faster.
+
+Content is derived from a tick counter, so the same tick always returns the
+same bytes - which is exactly what you want for a change monitor.
 
 ## Local usage
 

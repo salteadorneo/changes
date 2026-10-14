@@ -42,7 +42,7 @@ describe('renderDiff', () => {
             { type: 'same', line: 'precio: 10' },
             { type: 'remove', line: 'precio: 10' },
             { type: 'add', line: 'precio: 8' }
-        ]);
+        ], 'es');
 
         assert.match(output, /^```diff\n/);
         assert.match(output, /\n  precio: 10\n/);
@@ -52,24 +52,32 @@ describe('renderDiff', () => {
     });
 
     test('summarises skipped runs and truncation', () => {
-        assert.match(renderDiff([{ type: 'skip', count: 46 }]), /46 lineas sin cambios/);
+        assert.match(renderDiff([{ type: 'skip', count: 46 }], 'es'), /46 l[ií]neas sin cambios/);
         assert.match(
-            renderDiff([{ type: 'truncated', oldCount: 5000, newCount: 6000 }]),
-            /5000 -> 6000 lineas/
+            renderDiff([{ type: 'truncated', oldCount: 5000, newCount: 6000 }], 'es'),
+            /5000 -> 6000/
         );
     });
 
     test('says so when there is no diff data', () => {
-        assert.match(renderDiff(null), /Sin datos de diff/);
-        assert.match(renderDiff([]), /Sin datos de diff/);
+        assert.match(renderDiff(null, 'es'), /Sin datos de diff/);
+        assert.match(renderDiff([], 'es'), /Sin datos de diff/);
     });
 
     test('truncates long diffs and says it did', () => {
         const long = Array.from({ length: 200 }, (_, i) => ({ type: 'add', line: `linea ${i}` }));
-        const output = renderDiff(long, 10);
+        const output = renderDiff(long, 'es', 10);
 
-        assert.match(output, /diff recortado/);
+        assert.match(output, /recortado/);
         assert.ok(output.split('\n').length < 20);
+    });
+
+    test('follows the configured language', () => {
+        const diff = [{ type: 'skip', count: 3 }];
+
+        assert.match(renderDiff(diff, 'es'), /l[ií]neas sin cambios/);
+        assert.match(renderDiff(diff, 'en'), /unchanged lines/);
+        assert.match(renderDiff([], 'en'), /No diff data/);
     });
 });
 
@@ -84,11 +92,18 @@ describe('issue formatting', () => {
     };
 
     test('the title carries a machine-readable source marker', () => {
-        assert.equal(issueTitle(SOURCE), '[changes:notify-test-source] Test Source - cambio detectado');
+        assert.equal(
+            issueTitle(SOURCE, 'es'),
+            '[changes:notify-test-source] Test Source - cambio detectado'
+        );
+        assert.equal(
+            issueTitle(SOURCE, 'en'),
+            '[changes:notify-test-source] Test Source - change detected'
+        );
     });
 
     test('the body links before/after shots and the timeline', () => {
-        const body = issueBody(SOURCE, change, 'https://example.com');
+        const body = issueBody(SOURCE, change, 'https://example.com', 'es');
 
         assert.match(body, /https:\/\/example\.com\/screenshots\/x\/old\.png/);
         assert.match(body, /https:\/\/example\.com\/screenshots\/x\/new\.png/);
@@ -97,22 +112,32 @@ describe('issue formatting', () => {
         assert.match(body, /\+ nuevo/);
     });
 
-    test('marks only the missing half of the pair', () => {
-        const body = issueBody(SOURCE, { ...change, previousScreenshot: null }, 'https://example.com');
+    test('the body is translated', () => {
+        const es = issueBody(SOURCE, change, 'https://example.com', 'es');
+        const en = issueBody(SOURCE, change, 'https://example.com', 'en');
 
-        assert.match(body, /Antes:\*\* _no disponible_/);
+        assert.match(es, /\*\*Fuente:\*\*/);
+        assert.match(en, /\*\*Source:\*\*/);
+        assert.match(es, /\*\*Antes:\*\*/);
+        assert.match(en, /\*\*Before:\*\*/);
+    });
+
+    test('marks only the missing half of the pair', () => {
+        const body = issueBody(SOURCE, { ...change, previousScreenshot: null }, 'https://example.com', 'es');
+
+        assert.match(body, /Antes:\*\* _Sin captura_/);
         assert.match(body, /Despu.*s:\*\* \[ver\]/);
     });
 
     test('omits the screenshot section entirely when there are none', () => {
-        const body = issueBody(SOURCE, { ...change, screenshot: null, previousScreenshot: null }, 'https://example.com');
+        const body = issueBody(SOURCE, { ...change, screenshot: null, previousScreenshot: null }, 'https://example.com', 'es');
 
         assert.doesNotMatch(body, /Capturas/);
         assert.match(body, /### Diff/);
     });
 
     test('works without a site url, falling back to relative paths', () => {
-        const body = issueBody(SOURCE, change, '');
+        const body = issueBody(SOURCE, change, '', 'es');
 
         assert.match(body, /\[ver\]\(screenshots\/x\/new\.png\)/);
         assert.doesNotMatch(body, /\[ver\]\(https/);

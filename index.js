@@ -46,14 +46,22 @@ function normalizeSource(source) {
  *   - a content change captures a new one, giving the before/after pair
  *   - otherwise nothing is captured until something actually changes
  *
+ * A previous attempt that was blocked or failed is retried: the stored image
+ * is missing, stale or is a bot-check page, so there is nothing worth keeping.
+ *
  * @param {Object} source - Normalised source
  * @param {string} status - 'changed' | 'unchanged'
+ * @param {string} [lastCaptureStatus] - captureStatus from the previous run
  * @returns {{capture: boolean, reason: string}}
  */
-export function shouldCapture(source, status) {
+export function shouldCapture(source, status, lastCaptureStatus) {
     if (!source.screenshots) return { capture: false, reason: 'disabled' };
     if (!/^https?:\/\//i.test(source.url || '')) return { capture: false, reason: 'not-http' };
     if (status === 'changed') return { capture: true, reason: 'change' };
+
+    if (lastCaptureStatus === 'blocked' || lastCaptureStatus === 'failed') {
+        return { capture: true, reason: `retry-${lastCaptureStatus}` };
+    }
 
     return listScreenshots(source.id).length === 0
         ? { capture: true, reason: 'initial' }
@@ -158,6 +166,32 @@ async function main() {
                 const status = previousHash && previousHash !== result.currentHash ? 'changed' : 'unchanged';
                 const timestamp = new Date().toISOString();
 
+                saveContent(source.id, result.content);
+
+                const shotsBefore = listScreenshots(source.id);
+                const previousShot = shotsBefore[0] || null;
+
+                const { capture, reason } = shouldCapture(source, status, previousData?.captureStatus);
+                let shot = null;
+                let captureStatus = 'pending';
+                let captureReason = null;
+
+                if (capture) {
+                    console.log(`    Capturing screenshot (${reason})...`);
+                    shot = await captureScreenshot(source.url, source.id);
+
+                    if (shot.error) {
+                        captureStatus = shot.blocked ? 'blocked' : 'failed';
+                        captureReason = shot.reason || shot.error;
+                        console.error(`    ✗ Screenshot ${captureStatus}: ${shot.error}`);
+                    } else {
+                        captureStatus = 'ok';
+                        console.log(`    ✓ Screenshot: ${shot.path}`);
+                    }
+                } else {
+                    captureStatus = 'skipped';
+                }
+
                 saveChangeData(source.id, {
                     lastCheck: timestamp,
                     status,
@@ -165,27 +199,11 @@ async function main() {
                     previousHash: previousHash || null,
                     timestamp,
                     checks: (previousData?.checks || 0) + 1,
+                    captureStatus,
+                    captureReason,
                     ...result.meta,
                     error: null
                 });
-
-                saveContent(source.id, result.content);
-
-                const shotsBefore = listScreenshots(source.id);
-                const previousShot = shotsBefore[0] || null;
-
-                const { capture, reason } = shouldCapture(source, status);
-                let shot = null;
-
-                if (capture) {
-                    console.log(`    Capturing screenshot (${reason})...`);
-                    shot = await captureScreenshot(source.url, source.id);
-                    if (shot.error) {
-                        console.error(`    ✗ Screenshot failed: ${shot.error}`);
-                    } else {
-                        console.log(`    ✓ Screenshot: ${shot.path}`);
-                    }
-                }
 
                 if (status === 'changed') {
                     const diff = previousContent ? computeDiff(previousContent, result.content) : null;
@@ -217,6 +235,8 @@ async function main() {
                     meta: result.meta,
                     content: result.content,
                     error: null,
+                    captureStatus,
+                    captureReason,
                     thumbnail: listScreenshots(source.id)[0]?.path || null,
                     changesCount: loadChangesHistory(source.id).length,
                     checks: (previousData?.checks || 0) + 1,

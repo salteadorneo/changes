@@ -1,0 +1,34 @@
+# Config de ejemplo para probar en local.
+#
+# 1. Arranca el servidor de ejemplo:   npm run example
+# 2. Copia este fichero a config.yml
+# 3. Ejecuta:                         npm run build
+#
+# Cambia ?every=5 para que sea más rápido de probar.
+
+title: Prueba local
+language: es
+
+sources:
+  # Página completa: el texto visible cambia (precio, stock)
+  - name: Tienda
+    url: http://localhost:8787/?every=5
+    type: content
+
+  # Solo un elemento concreto de la página
+  - name: Solo el precio
+    url: http://localhost:8787/?every=5
+    type: html
+    selector: ".price"
+
+  # API JSON, se extrae un valor suelto
+  - name: Precio JSON
+    url: http://localhost:8787/json?every=5
+    type: json
+    jsonPath: price
+    timeout: 5000
+
+  # Da error a propósito: comprueba que se marca como 'error'
+  - name: Error 500
+    url: http://localhost:8787/boom
+    type: content
