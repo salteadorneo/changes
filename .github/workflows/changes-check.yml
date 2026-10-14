@@ -21,6 +21,8 @@ concurrency:
 
 jobs:
   check:
+    env:
+      IS_TEMPLATE: ${{ secrets.IS_TEMPLATE }}
     runs-on: ubuntu-latest
 
     steps:
@@ -28,7 +30,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Setup Node.js
-        if: ${{ secrets.IS_TEMPLATE != 'true' }}
+        if: env.IS_TEMPLATE != 'true'
         uses: actions/setup-node@v4
         with:
           node-version: '20'
@@ -37,14 +39,14 @@ jobs:
       # puppeteer-core is an optional dependency and uses the Chrome that
       # already ships with the runner - no browser download needed.
       - name: Install dependencies
-        if: ${{ secrets.IS_TEMPLATE != 'true' }}
+        if: env.IS_TEMPLATE != 'true'
         run: npm ci --no-audit
 
       # State (hashes, history and screenshots) lives in the Actions cache
       # instead of in the repository, so nothing generated is ever committed.
       # Delete the "Save state" step below if you don't need change history.
       - name: Restore state
-        if: ${{ secrets.IS_TEMPLATE != 'true' }}
+        if: env.IS_TEMPLATE != 'true'
         uses: actions/cache/restore@v4
         with:
           path: |
@@ -54,13 +56,13 @@ jobs:
           restore-keys: changes-state-
 
       - name: Run change detection
-        if: ${{ secrets.IS_TEMPLATE != 'true' }}
+        if: env.IS_TEMPLATE != 'true'
         run: npm run build
 
       - name: Prepare site
         run: |
           mkdir -p _site
-          if [ "${{ secrets.IS_TEMPLATE }}" = "true" ]; then
+          if [ "$IS_TEMPLATE" = "true" ]; then
             # Template repository: publish the whole marketing landing tree
             # (root auto-detects the browser language into /es/ or /en/).
             cp -r landing/* _site/
@@ -88,7 +90,7 @@ jobs:
       # Runs after the deploy so the links in the issue are already live.
       # Never fails the run: a broken notification must not block the site.
       - name: Notify changes as GitHub Issues
-        if: ${{ secrets.IS_TEMPLATE != 'true' }}
+        if: env.IS_TEMPLATE != 'true'
         continue-on-error: true
         run: npm run notify
         env:
@@ -98,7 +100,7 @@ jobs:
       # Must come last: the notify step writes api/<id>/notified.json and that
       # file has to land in the cache, otherwise the same change alerts twice.
       - name: Save state
-        if: ${{ secrets.IS_TEMPLATE != 'true' }}
+        if: env.IS_TEMPLATE != 'true'
         uses: actions/cache/save@v4
         with:
           path: |
