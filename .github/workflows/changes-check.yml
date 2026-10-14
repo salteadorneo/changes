@@ -4,9 +4,11 @@ name: Changes Check
 # This is a template: nothing happens until you ask for it.
 # Want automatic runs? Uncomment the schedule below.
 on:
-  workflow_dispatch:
+  push:
+    branches: [main]
   schedule:
     - cron: '0 * * * *'
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -69,6 +71,10 @@ jobs:
             # Template repository: publish the whole marketing landing tree
             # (root auto-detects the browser language into /es/ or /en/).
             cp -r landing/* _site/
+            VERSION=$(grep '"version"' package.json | head -1 | sed -E 's/.*"version": *"([^"]+)".*/\1/')
+            for f in _site/index.html _site/es/index.html _site/en/index.html; do
+              if [ -f "$f" ]; then sed -i "s/__VERSION__/$VERSION/g" "$f"; fi
+            done
           else
             cp index.html _site/
             touch _site/.nojekyll
