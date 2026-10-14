@@ -3,56 +3,19 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { parseYAML } from './lib/yaml-parser.js';
 import { checkContent } from './lib/detector.js';
+import { computeDiff } from './lib/diff.js';
+import { captureScreenshot, listScreenshots, pruneScreenshots } from './lib/screenshot.js';
 import { generateHTML, generateSourcePage } from './lib/html.js';
-import { captureScreenshot, getTimestampedFilename, cleanupOldScreenshots, getRecentScreenshots, captureSourceScreenshot, getSourceScreenshots } from './lib/screenshot.js';
-
-/**
- * @typedef {Object} Source
- * @property {string} id - Unique source identifier
- * @property {string} name - Display name
- * @property {string} url - URL to check
- * @property {string} type - Check type: 'content', 'html', 'json'
- * @property {string} [selector] - CSS selector for HTML extraction
- * @property {string} [jsonPath] - JSON path for value extraction
- */
-
-/**
- * @typedef {Object} ChangeResult
- * @property {string} id - Source identifier
- * @property {string} name - Source name
- * @property {'changed'|'unchanged'} status - Change status
- * @property {string} currentHash - Current content hash
- * @property {string} [previousHash] - Previous content hash
- * @property {string} timestamp - ISO timestamp
- * @property {string|null} error - Error message if any
- */
-
-/**
- * @typedef {Object} ChangeData
- * @property {string} lastCheck - ISO timestamp of last check
- * @property {'changed'|'unchanged'} status - Current status
- * @property {string} currentHash - Current content hash
- * @property {string} [previousHash] - Previous content hash
- * @property {string} timestamp - ISO timestamp
- * @property {string|null} error - Error message if any
- */
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const { version } = JSON.parse(fs.readFileSync(path.join(__dirname, 'package.json'), 'utf-8'));
-
-/**
- * Load and parse configuration from YAML or JSON
- * @returns {Object}
- */
 function loadConfig() {
     const yamlPath = path.join(__dirname, 'config.yml');
     const jsonPath = path.join(__dirname, 'config.json');
 
     if (fs.existsSync(yamlPath)) {
-        const yamlContent = fs.readFileSync(yamlPath, 'utf-8');
-        return parseYAML(yamlContent);
+        return parseYAML(fs.readFileSync(yamlPath, 'utf-8'));
     } else if (fs.existsSync(jsonPath)) {
         return JSON.parse(fs.readFileSync(jsonPath, 'utf-8'));
     } else {
@@ -60,20 +23,10 @@ function loadConfig() {
     }
 }
 
-/**
- * Generate a service ID from name
- * @param {string} name
- * @returns {string}
- */
 function generateId(name) {
     return name.toLowerCase().replace(/[^a-z0-9]+/g, '-');
 }
 
-/**
- * Normalize source configuration with defaults
- * @param {Object} source
- * @returns {Source}
- */
 function normalizeSource(source) {
     return {
         id: source.id || generateId(source.name),
@@ -82,115 +35,89 @@ function normalizeSource(source) {
         type: source.type || 'content',
         selector: source.selector,
         jsonPath: source.jsonPath,
-        timeout: source.timeout || 10000
+        timeout: source.timeout || 10000,
+        screenshots: source.screenshots !== false
     };
 }
 
 /**
- * Ensure output directories exist
+ * Decide whether this run should capture a screenshot.
+ *
+ * We do not shoot on every run (that is a lot of browser time and storage);
+ * we shoot when the content changed, and once a day as a heartbeat so the
+ * archive keeps growing even for sources that never change.
+ *
+ * @param {Object} source - Normalised source
+ * @param {string} status - 'changed' | 'unchanged'
+ * @returns {{capture: boolean, reason: string}}
  */
-function ensureDirectories() {
-    const dirs = [
-        path.join(__dirname, 'api'),
-        path.join(__dirname, 'source'),
-    ];
+function shouldCapture(source, status) {
+    if (!source.screenshots) return { capture: false, reason: 'disabled' };
+    if (!/^https?:\/\//i.test(source.url || '')) return { capture: false, reason: 'not-http' };
+    if (status === 'changed') return { capture: true, reason: 'change' };
 
-    dirs.forEach(dir => {
-        if (!fs.existsSync(dir)) {
-            fs.mkdirSync(dir, { recursive: true });
-        }
+    const shots = listScreenshots(source.id);
+    const today = new Date().toISOString().slice(0, 10);
+    const shotToday = shots.some(shot => shot.savedAt.slice(0, 10) === today);
+
+    return shotToday
+        ? { capture: false, reason: 'already-captured-today' }
+        : { capture: true, reason: 'daily' };
+}
+
+function ensureDirectories() {
+    ['api', 'source'].forEach(dir => {
+        const full = path.join(__dirname, dir);
+        if (!fs.existsSync(full)) fs.mkdirSync(full, { recursive: true });
     });
 }
 
-/**
- * Save change data for a source
- * @param {string} sourceId
- * @param {ChangeData} data
- */
+function apiDir(sourceId) {
+    const dir = path.join(__dirname, 'api', sourceId);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    return dir;
+}
+
 function saveChangeData(sourceId, data) {
-    const apiDir = path.join(__dirname, 'api', sourceId);
-
-    if (!fs.existsSync(apiDir)) {
-        fs.mkdirSync(apiDir, { recursive: true });
-    }
-
-    const statusFile = path.join(apiDir, 'status.json');
-    fs.writeFileSync(statusFile, JSON.stringify(data, null, 2), 'utf-8');
+    fs.writeFileSync(path.join(apiDir(sourceId), 'status.json'), JSON.stringify(data, null, 2), 'utf-8');
 }
 
-/**
- * Load change data for a source
- * @param {string} sourceId
- * @returns {ChangeData|null}
- */
 function loadChangeData(sourceId) {
-    const statusFile = path.join(__dirname, 'api', sourceId, 'status.json');
-
-    if (!fs.existsSync(statusFile)) {
-        return null;
-    }
-
-    try {
-        return JSON.parse(fs.readFileSync(statusFile, 'utf-8'));
-    } catch (error) {
-        console.error(`Error reading change data for ${sourceId}:`, error);
-        return null;
-    }
+    const file = path.join(__dirname, 'api', sourceId, 'status.json');
+    if (!fs.existsSync(file)) return null;
+    try { return JSON.parse(fs.readFileSync(file, 'utf-8')); } catch { return null; }
 }
 
-/**
- * Load changes history for a source
- * @param {string} sourceId
- * @returns {Array}
- */
 function loadChangesHistory(sourceId) {
-    const historyFile = path.join(__dirname, 'api', sourceId, 'history.json');
-
-    if (!fs.existsSync(historyFile)) {
-        return [];
-    }
-
-    try {
-        return JSON.parse(fs.readFileSync(historyFile, 'utf-8'));
-    } catch (error) {
-        console.error(`Error reading changes history for ${sourceId}:`, error);
-        return [];
-    }
+    const file = path.join(__dirname, 'api', sourceId, 'history.json');
+    if (!fs.existsSync(file)) return [];
+    try { return JSON.parse(fs.readFileSync(file, 'utf-8')); } catch { return []; }
 }
 
-/**
- * Save change to history
- * @param {string} sourceId
- * @param {Object} changeEntry
- */
-function addToChangesHistory(sourceId, changeEntry) {
-    const apiDir = path.join(__dirname, 'api', sourceId);
-
-    if (!fs.existsSync(apiDir)) {
-        fs.mkdirSync(apiDir, { recursive: true });
-    }
-
-    const historyFile = path.join(apiDir, 'history.json');
+function addToChangesHistory(sourceId, entry) {
     const history = loadChangesHistory(sourceId);
-
-    // Add new entry at the beginning
     history.unshift({
         timestamp: new Date().toISOString(),
-        status: changeEntry.status,
-        hash: changeEntry.hash,
-        previousHash: changeEntry.previousHash,
-        screenshotPath: changeEntry.screenshotPath || null
+        status: entry.status,
+        hash: entry.hash,
+        previousHash: entry.previousHash,
+        diff: entry.diff || null,
+        screenshot: entry.screenshot || null,
+        previousScreenshot: entry.previousScreenshot || null
     });
-
-    // Keep last 50 changes
-    const trimmedHistory = history.slice(0, 50);
-
-    fs.writeFileSync(historyFile, JSON.stringify(trimmedHistory, null, 2), 'utf-8');
+    const file = path.join(apiDir(sourceId), 'history.json');
+    fs.writeFileSync(file, JSON.stringify(history.slice(0, 50), null, 2), 'utf-8');
 }
 
-/**
- * Check all sources and generate reports
- */
+function loadContent(sourceId) {
+    const file = path.join(__dirname, 'api', sourceId, 'content.txt');
+    return fs.existsSync(file) ? fs.readFileSync(file, 'utf-8') : null;
+}
+
+function saveContent(sourceId, content) {
+    fs.writeFileSync(path.join(apiDir(sourceId), 'content.txt'), content, 'utf-8');
+}
+
 async function main() {
     try {
         console.log('Loading configuration...');
@@ -214,146 +141,113 @@ async function main() {
                 const result = await checkContent(source);
                 const previousData = loadChangeData(source.id);
                 const previousHash = previousData?.currentHash;
+                const previousContent = loadContent(source.id);
 
-                const changeData = {
-                    lastCheck: new Date().toISOString(),
-                    status: previousHash && previousHash !== result.currentHash ? 'changed' : 'unchanged',
+                const status = previousHash && previousHash !== result.currentHash ? 'changed' : 'unchanged';
+                const timestamp = new Date().toISOString();
+
+                saveChangeData(source.id, {
+                    lastCheck: timestamp,
+                    status,
                     currentHash: result.currentHash,
                     previousHash: previousHash || null,
-                    timestamp: new Date().toISOString(),
-                    error: result.error || null
-                };
+                    timestamp,
+                    error: null
+                });
 
-                saveChangeData(source.id, changeData);
+                saveContent(source.id, result.content);
 
-                // Record change in history if status changed
-                if (changeData.status === 'changed') {
+                const shotsBefore = listScreenshots(source.id);
+                const previousShot = shotsBefore[0] || null;
+
+                const { capture, reason } = shouldCapture(source, status);
+                let shot = null;
+
+                if (capture) {
+                    console.log(`    Capturing screenshot (${reason})...`);
+                    shot = await captureScreenshot(source.url, source.id);
+                    if (shot.error) {
+                        console.error(`    ✗ Screenshot failed: ${shot.error}`);
+                    } else {
+                        console.log(`    ✓ Screenshot: ${shot.path}`);
+                    }
+                }
+
+                if (status === 'changed') {
+                    const diff = previousContent ? computeDiff(previousContent, result.content) : null;
                     addToChangesHistory(source.id, {
                         status: 'changed',
                         hash: result.currentHash,
-                        previousHash: previousHash
+                        previousHash,
+                        diff,
+                        screenshot: shot && !shot.error ? shot.path : null,
+                        previousScreenshot: previousShot ? previousShot.path : null
                     });
-                }
-
-                if (result.html) {
-                    const hasExistingScreenshots = getSourceScreenshots(source.id, 1).length > 0;
-                    const shouldCaptureScreenshot = changeData.status === 'changed' || !hasExistingScreenshots;
-
-                    if (shouldCaptureScreenshot) {
-                        console.log(`    Capturing source screenshot...`);
-                        const screenshotResult = await captureSourceScreenshot(result.html, source.id);
-                        if (screenshotResult.success) {
-                            console.log(`    ✓ Screenshot saved: ${screenshotResult.filename}`);
-                            // Update history with screenshot paths
-                            if (changeData.status === 'changed') {
-                                const allScreenshots = getSourceScreenshots(source.id, 100); // Get all
-                                const previousScreenshot = allScreenshots.length > 1 ? allScreenshots[1] : null; // Second is previous
-
-                                const history = loadChangesHistory(source.id);
-                                if (history.length > 0) {
-                                    history[0].screenshotPath = screenshotResult.path;
-                                    history[0].previousScreenshotPath = previousScreenshot?.path || null;
-                                    const historyFile = path.join(__dirname, 'api', source.id, 'history.json');
-                                    fs.writeFileSync(historyFile, JSON.stringify(history, null, 2), 'utf-8');
-                                }
-                            }
-                        } else {
-                            console.log(`    ✗ Screenshot failed: ${screenshotResult.error}`);
-                        }
-                    } else {
-                        console.log(`    ℹ No changes detected, skipping screenshot`);
-                    }
+                    console.log(`    ✓ CHANGED - Hash: ${result.currentHash.substring(0, 8)}`);
+                } else {
+                    console.log(`    ✓ unchanged - Hash: ${result.currentHash.substring(0, 8)}`);
                 }
 
                 results.push({
                     id: source.id,
                     name: source.name,
-                    status: changeData.status,
+                    status,
                     currentHash: result.currentHash,
-                    previousHash: previousHash,
-                    timestamp: changeData.timestamp,
-                    error: changeData.error,
+                    previousHash,
+                    timestamp: new Date().toISOString(),
+                    error: null,
                     changesHistory: loadChangesHistory(source.id)
                 });
 
-                if (changeData.status === 'changed') {
-                    console.log(`    ✓ CHANGED - Hash: ${result.currentHash.substring(0, 8)}`);
-                } else {
-                    console.log(`    ✓ unchanged - Hash: ${result.currentHash.substring(0, 8)}`);
-                }
             } catch (error) {
                 console.error(`    ✗ Error: ${error.message}`);
 
-                const changeData = {
-                    lastCheck: new Date().toISOString(),
-                    status: 'unchanged',
+                const errorTimestamp = new Date().toISOString();
+
+                saveChangeData(source.id, {
+                    lastCheck: errorTimestamp,
+                    status: 'error',
                     currentHash: null,
                     previousHash: null,
-                    timestamp: new Date().toISOString(),
+                    timestamp: errorTimestamp,
                     error: error.message
-                };
-
-                saveChangeData(source.id, changeData);
+                });
 
                 results.push({
                     id: source.id,
                     name: source.name,
                     status: 'error',
-                    error: error.message
+                    error: error.message,
+                    changesHistory: loadChangesHistory(source.id)
                 });
             }
         }
 
-        // Generate HTML dashboard
-        console.log('\nGenerating dashboard...');
-        const htmlContent = generateHTML(
-            config.title || 'Change Monitor',
-            results,
-            config
-        );
+        console.log('\nPruning screenshot archive...');
+        for (const source of sources) {
+            const removed = pruneScreenshots(listScreenshots(source.id), config.archive);
+            if (removed.length > 0) {
+                console.log(`  ${source.id}: removed ${removed.length} old screenshot(s)`);
+            }
+        }
 
-        fs.writeFileSync(path.join(__dirname, 'index.html'), htmlContent, 'utf-8');
+        console.log('Generating dashboard...');
+        fs.writeFileSync(
+            path.join(__dirname, 'index.html'),
+            generateHTML(config.title || 'Change Monitor', results, config),
+            'utf-8'
+        );
         console.log('✓ Dashboard generated: index.html');
 
-        // Generate source detail pages
         console.log('Generating source pages...');
         results.forEach(result => {
-            const sourcePageHTML = generateSourcePage(
-                result.name,
-                result.id,
-                result.changesHistory || [],
-                config
-            );
-
-            const sourcePagePath = path.join(__dirname, 'source', `${result.id}.html`);
-            fs.writeFileSync(sourcePagePath, sourcePageHTML, 'utf-8');
+            const html = generateSourcePage(result.name, result.id, result.changesHistory || [], config);
+            fs.writeFileSync(path.join(__dirname, 'source', `${result.id}.html`), html, 'utf-8');
             console.log(`✓ Source page generated: source/${result.id}.html`);
         });
 
-        // Capture screenshot of dashboard only if there are changes or it's first time
-        // const changed = results.filter(r => r.status === 'changed').length;
-        // const hasExistingDashboardScreenshots = getRecentScreenshots().length > 0;
-        // const shouldCaptureDashboard = changed > 0 || !hasExistingDashboardScreenshots;
-
-        // if (shouldCaptureDashboard) {
-        //     console.log('Capturing dashboard screenshot...');
-        //     const screenshotFilename = getTimestampedFilename();
-        //     const screenshotResult = await captureScreenshot(htmlContent, screenshotFilename);
-
-        //     if (screenshotResult.success) {
-        //         console.log(`✓ Screenshot saved: screenshots/${screenshotResult.filename}`);
-        //         cleanupOldScreenshots(10); // Keep only last 10 screenshots
-        //     } else {
-        //         console.warn(`⚠ Screenshot capture failed: ${screenshotResult.error}`);
-        //     }
-        // } else {
-        //     console.log('ℹ No changes detected, skipping dashboard screenshot');
-        // }
-
-        // Summary
         const changed = results.filter(r => r.status === 'changed').length;
         const errors = results.filter(r => r.status === 'error').length;
-
         console.log('\n=== Summary ===');
         console.log(`Total sources: ${results.length}`);
         console.log(`Changed: ${changed}`);

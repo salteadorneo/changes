@@ -1,210 +1,209 @@
 # Changes Monitor
 
-Lightweight change detection and monitoring system for GitHub Pages with **automatic screenshot capture** of monitored websites.
+Lightweight change detection and monitoring system for GitHub Pages, designed to be used as a **GitHub template**.
 
-## Features
+It checks a list of URLs every run, hashes what it finds, and publishes a static dashboard with a word-level diff timeline and a **before/after screenshot** for every change.
 
-- **Change Detection** - SHA256 hashing to detect any content changes
-- **Automatic Screenshots** - Captures PNG screenshots of monitored sources using Puppeteer
-- **Multiple Source Types** - HTML (CSS selectors), JSON (dot notation), plain content
-- **Static Site Generation** - Runs on GitHub Actions, deploys to GitHub Pages
-- **Visual Dashboard** - Real-time monitoring with screenshot thumbnails
-- **Multi-language Support** - English and Spanish UI
-- **No Databases** - Everything stored as static files and git commits
-- **Auto-cleanup** - Keeps only recent screenshots to prevent repo bloat
+Typical uses: tracking offer prices, event ticket availability, release notes, or any page that changes without notice.
+
+- **One optional dependency** - `puppeteer-core`, which drives the Chrome already installed on the machine
+- **Nothing generated is committed** - output lives in the Actions cache and in the deployment artifact
+- **Opt-in** - the workflow only runs when you trigger it
+- **Degrades gracefully** - with no browser available the monitor still works, just without pictures
 
 ## Quick Start
 
-### 1. Configure Sources
-
-Edit `config.yml` to add the sources you want to monitor:
-
-```yaml
-title: Change Monitor
-language: es
-sources:
-  - name: Website
-    url: https://example.com
-    type: content
-  
-  - name: API Version
-    url: https://api.example.com/version.json
-    type: json
-    jsonPath: data.version
-  
-  - name: Version Badge
-    url: https://example.com
-    type: html
-    selector: .version-badge
-```
-
-### 2. Run Locally
-
-```bash
-npm install
-npm run build    # Single check + capture screenshots
-npm run dev      # Watch mode
-npm run cleanup  # Remove old screenshots (keep last 3-5)
-```
-
-### 3. Deploy to GitHub Pages
-
-GitHub Actions automatically:
-1. Checks all sources for changes
-2. Captures PNG screenshots of each source
-3. Generates a dashboard with status + thumbnails
-4. Commits changes to git
-5. Deploys to GitHub Pages
+1. Click **Use this template** on GitHub.
+2. Edit `config.yml` with the sources you want to monitor.
+3. Go to the **Actions** tab and run **Changes Check**.
+4. Enable GitHub Pages with source **GitHub Actions**.
 
 ## Configuration
 
-### Source Types
-
-- **content** - Plain text/HTML content comparison
-- **html** - Extract using CSS selectors (e.g., `.version`, `[data-version]`, `h1`)
-- **json** - Extract using dot notation (e.g., `data.version.number`)
-
-### Example Config
+`config.yml`:
 
 ```yaml
+title: Change Monitor
+language: es   # 'en' or 'es'
+
 sources:
-  # Monitor entire page content
+  # Whole page as plain text
   - name: Homepage
     url: https://example.com
     type: content
-  
-  # Extract specific HTML element
+
+  # A single HTML element (.class, #id, [attr] or tag)
   - name: Version Badge
     url: https://example.com
     type: html
     selector: "[data-version]"
-    timeout: 10000
-  
-  # Monitor API endpoint
+
+  # A value inside a JSON response (dot notation)
   - name: API Version
     url: https://api.example.com/status.json
     type: json
-    jsonPath: version
-    timeout: 15000
+    jsonPath: data.version
 ```
 
-## Output Structure
+| Field | Default | Description |
+| --- | --- | --- |
+| `name` | required | Shown in the dashboard |
+| `url` | required | URL to fetch |
+| `type` | `content` | `content`, `html` or `json` |
+| `selector` | - | CSS-ish selector, for `type: html` |
+| `jsonPath` | - | Dot notation path, for `type: json` |
+| `timeout` | `10000` | Milliseconds before aborting the fetch |
+| `screenshots` | `true` | Set to `false` to never capture this source |
 
-### Generated Files
-
-```
-index.html                          # Main dashboard
-screenshots/
-  dashboard-YYYY-MM-DDTHH-MM-SS.png # Dashboard snapshots (last 5)
-  sources/
-    petanca-YYYY-MM-DDTHH-MM-SS.png # Source screenshots (last 3 each)
-    google-YYYY-MM-DDTHH-MM-SS.png
-api/
-  petanca/
-    status.json                      # Current status
-    history/
-      2026-01.json                   # Monthly history
-  google/
-    status.json
-    history/
-      2026-01.json
+```yaml
+# Optional: screenshot archive retention.
+# A full-page 1280px PNG weighs roughly 1-1.5 MB, so maxTotal is your
+# storage budget per source: 40 is about 40-60 MB.
+archive:
+  keepRecent: 24   # newest screenshots, whatever their age
+  keepDaily: 30    # one per day for the last N days
+  maxTotal: 40     # hard cap per source
 ```
 
-### Status File Format
+See `config.example.yml` for a commented version.
 
-```json
-{
-  "lastCheck": "2026-01-30T10:00:00.000Z",
-  "status": "changed",
-  "currentHash": "abc123def456...",
-  "previousHash": "def456abc123...",
-  "timestamp": "2026-01-30T10:00:00.000Z",
-  "error": null
-}
+## Screenshots
+
+Every run decides whether to capture, so a 15-minute schedule does not mean
+15 minutes of screenshots:
+
+| Situation | Capture? |
+| --- | --- |
+| The content hash changed | yes - the change gets a before/after pair |
+| No change, but nothing captured today | yes - daily heartbeat |
+| No change, already captured today | no |
+| `screenshots: false`, or a non-http URL | no |
+
+Shots land in `screenshots/<source-id>/<timestamp>.png` and the source page
+renders them side by side above the diff.
+
+### Retention
+
+Three tiers, applied after each run in `lib/screenshot.js`:
+
+1. keep the newest `keepRecent` shots, whatever their age
+2. keep the newest shot of each of the last `keepDaily` days
+3. drop the oldest until at most `maxTotal` remain per source
+
+### Browser
+
+`puppeteer-core` does not download a browser. The tool looks for Chrome in
+`PUPPETEER_EXECUTABLE_PATH`, `CHROME_PATH` and the usual install paths; the
+GitHub `ubuntu-latest` runner already ships one. If none is found the run logs
+a warning and continues without pictures.
+
+## Local usage
+
+```bash
+npm run build   # Run one check and write the site to ./index.html
+npm run dev     # Same, in watch mode
+npm test        # Run the test suite
 ```
 
-## Language Support
+There is nothing to install - the project has no dependencies.
 
-Supported languages:
-- `en` - English
-- `es` - Spanish
+## How it works
 
-Add new languages by creating `lang/{code}.json` with translation strings.
+```
+1. Load config.yml
+2. For each source:
+   a. Fetch the URL (3 retries, 2s apart)
+   b. Extract the content (as-is / selector / jsonPath)
+   c. Hash it with SHA-256 and compare with the stored hash
+   d. If it changed, store a line-level + word-level diff
+   e. Capture a screenshot if it changed or if none exists for today
+3. Write index.html, source/<id>.html and api/<id>/*.json
+4. Prune the screenshot archive
+```
 
-## GitHub Actions Setup
+## Generated files
 
-The workflow (`.github/workflows/changes-check.yml`) runs every 15 minutes and:
+These are **git-ignored** and rebuilt on every run:
 
-1. **Installs Chromium** for Puppeteer browser automation
-2. **Runs detection** - checks each source and captures screenshots
-3. **Cleans up** - keeps only the most recent screenshots
-4. **Deploys** - updates GitHub Pages automatically
-5. **Commits** - saves all changes to git (images + status files)
+```
+index.html                    # Dashboard
+source/<id>.html              # Per-source change timeline
+api/<id>/status.json          # Current hash and status
+api/<id>/history.json         # Last 50 changes with diffs and screenshots
+api/<id>/content.txt          # Last seen content, used to build the next diff
+screenshots/<id>/*.png        # Screenshot archive
+```
 
-### Required Permissions
+## How state is stored
 
-Add to your GitHub Pages workflow:
+The repository keeps **no generated data**. Between runs the workflow caches
+the `api/` and `screenshots/` folders with
+[`actions/cache`](https://github.com/actions/cache), so hashes, history and
+pictures survive without polluting the repo.
+
+If the cache is ever lost, the next run simply reports "no changes yet" and
+starts rebuilding from there.
+
+## GitHub Actions
+
+`.github/workflows/changes-check.yml` runs on demand (**Actions > Run workflow**).
+To run it on a schedule, uncomment the `schedule` block at the top of the file.
+
+The workflow:
+
+1. Restores the cached `api/` state
+2. Runs `npm run build`
+3. Saves the new state
+4. Copies the generated site into `_site/` and deploys **only that** to GitHub Pages
+
+Nothing is ever pushed back to the repository.
+
+### Repository permissions
+
+The workflow declares the least privileges it needs:
 
 ```yaml
 permissions:
-  contents: write      # Commit generated files
-  pages: write         # Deploy to Pages
-  id-token: write      # ID token for Pages
+  contents: read
+  pages: write
+  id-token: write
 ```
 
-## Scripts
+### Custom domain
 
-```bash
-npm run build      # Check sources + capture screenshots + generate dashboard
-npm run dev        # Watch mode for development
-npm run cleanup    # Remove old screenshots (keeps last 3-5)
-npm test           # Run tests
-npm test:watch     # Watch mode for tests
-```
+If you publish to a custom domain, set it in `CNAME`. The workflow copies it into
+the deployment automatically.
 
-## Architecture
-
-### Core Modules
-
-- **index.js** - Main orchestrator (config loading, loop, git commits)
-- **lib/detector.js** - Content checking + SHA256 hashing + HTML fetching
-- **lib/screenshot.js** - Puppeteer-based screenshot capture with auto-cleanup
-- **lib/html.js** - Dashboard HTML generation with screenshot thumbnails
-- **lib/yaml-parser.js** - Zero-dependency YAML parsing
-- **lib/utils.js** - Date formatting + utilities
-- **lang/*.json** - UI translations (EN/ES)
-
-### Dependencies
-
-- **puppeteer** - Browser automation for screenshot capture
-- **jsdom** - HTML parsing for content extraction
-- **canvas** - Image rendering (Puppeteer dependency)
-
-### How It Works
+## Project layout
 
 ```
-1. Load config.yml (sources to monitor)
-2. For each source:
-   a. Fetch content from URL
-   b. Extract using selector/jsonPath/as-is
-   c. Calculate SHA256 hash
-   d. Compare with previous hash
-   e. Capture PNG screenshot with Puppeteer
-3. Generate dashboard HTML with thumbnails
-4. Save status JSON files
-5. Cleanup old screenshots (keep last 3-5)
-6. Commit changes to git
+index.js               # Orchestrator: config, loop, files
+lib/detector.js        # Fetching, extraction, hashing
+lib/diff.js            # LCS line diff + word-level diff
+lib/screenshot.js      # Capture, archive listing, retention
+lib/html.js            # Dashboard and timeline generation
+lib/yaml-parser.js     # Minimal YAML parser
+lib/utils.js           # Date and JSON helpers
+lang/{en,es}.json      # UI strings
 ```
 
-## Limitations & Notes
+## Notes and limits
 
-- Puppeteer requires Chromium (auto-installed, ~200MB)
-- Screenshots in GitHub Actions use system Chromium from Ubuntu
-- Timeout default is 10 seconds, can be overridden per source
-- 3 retry attempts with 2-second delays on network errors
-- CSS selectors are standard (not XPath)
-- JSON paths use simple dot notation (no complex queries)
-- Screenshots are stored in git (with auto-cleanup to stay bounded)
+- Selectors are simple (`.class`, `#id`, `[attr]`, `tag`) - not full CSS.
+- JSON paths use plain dot notation.
+- `content` sources hash the visible text, so scripts and styles are ignored.
+- History keeps the 50 most recent changes per source.
+- Screenshots are full-page PNGs capped at 8000px tall. Very tall pages get
+  truncated, which is plenty for spotting a price or a ticket counter.
+- `actions/cache` entries are dropped after 7 days without a run. As long as
+  the workflow keeps running, the archive stays warm.
+
+## Not implemented yet
+
+Email notifications are not wired up. The natural hook would be a step in
+`changes-check.yml` that reads `api/*/status.json` after the build and opens a
+GitHub Issue when something changed - issues double as a free, searchable
+notification channel.
 
 ## License
 

@@ -6,6 +6,16 @@ title: Change Monitor Example
 # UI Language: 'en' (English) or 'es' (Spanish)
 language: en
 
+# Screenshot archive retention (optional)
+#
+# Captures happen when the content changes, plus one per day as a heartbeat.
+# Old ones are pruned with these rules. A full-page PNG weighs ~1-1.5 MB, so
+# maxTotal is your storage budget per source: 40 ~ 40-60 MB.
+archive:
+  keepRecent: 24   # newest screenshots, whatever their age
+  keepDaily: 30    # one per day for the last N days
+  maxTotal: 40     # hard cap per source
+
 # List of sources to monitor
 sources:
   # Example 1: Monitoring a JSON API
@@ -32,6 +42,8 @@ sources:
     url: https://raw.githubusercontent.com/octocat/Hello-World/master/README.md
     type: content
     timeout: 10000
+  # Optional: set to false to never capture screenshots for this source
+  # screenshots: false
 
 # Optional: report/feedback link
 # report: https://github.com/username/repo/issues/new

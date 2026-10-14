@@ -1,4 +1,18 @@
+# Dependencies
 node_modules/
+
+# Local secrets
 .env
+
+# Generated output - rebuilt on every run, never committed
+/index.html
+/api/
+/source/
+/screenshots/
+/_site/
+
+# OS / editor
 .DS_Store
+Thumbs.db
+
 *.log

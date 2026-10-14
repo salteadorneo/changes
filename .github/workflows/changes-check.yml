@@ -1,25 +1,30 @@
 name: Changes Check
 
+# Runs only when triggered manually (Actions tab > "Run workflow").
+# This is a template: nothing happens until you ask for it.
+# Want automatic runs? Uncomment the schedule below.
 on:
-  schedule:
-    - cron: '*/15 * * * *'
-  
   workflow_dispatch:
+  # schedule:
+  #   - cron: '*/15 * * * *'
 
 permissions:
-  contents: write
+  contents: read
   pages: write
   id-token: write
+
+# Never let two checks run at the same time
+concurrency:
+  group: changes-check
+  cancel-in-progress: true
 
 jobs:
   check:
     runs-on: ubuntu-latest
-    
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 1
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -27,39 +32,52 @@ jobs:
           node-version: '20'
           cache: 'npm'
 
+      # puppeteer-core is an optional dependency and uses the Chrome that
+      # already ships with the runner - no browser download needed.
       - name: Install dependencies
-        run: npm ci --prefer-offline --no-audit
+        run: npm ci --no-audit
 
-      - name: Install Chromium
-        run: |
-          npm install --save-optional puppeteer
-          npx puppeteer browsers install chrome
+      # State (hashes, history and screenshots) lives in the Actions cache
+      # instead of in the repository, so nothing generated is ever committed.
+      # Delete the "Save state" step below if you don't need change history.
+      - name: Restore state
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            api
+            screenshots
+          key: changes-state-${{ github.run_id }}
+          restore-keys: changes-state-
 
       - name: Run change detection
         run: npm run build
-        env:
-          PUPPETEER_SKIP_DOWNLOAD: true
-          PUPPETEER_EXECUTABLE_PATH: /usr/bin/chromium-browser
 
-      # - name: Cleanup old screenshots
-      #   run: npm run cleanup
+      - name: Save state
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            api
+            screenshots
+          key: changes-state-${{ github.run_id }}
+          if-no-files-found: ignore
 
-      - name: Commit and push changes
-        continue-on-error: true
+      - name: Prepare site
         run: |
-          git config user.name "Changes Monitor"
-          git config user.email "changes-monitor@github.local"
-          git add -A
-          git commit -m "[skip ci] Changes detected $(date -u +'%Y-%m-%d %H:%M:%S')" || true
-          git push
+          mkdir -p _site
+          cp index.html _site/
+          if [ -f CNAME ]; then cp CNAME _site/; fi
+          touch _site/.nojekyll
+          for dir in source api screenshots; do
+            if [ -d "$dir" ]; then cp -r "$dir" _site/; fi
+          done
+          ls -R _site
 
-      - name: Deploy to GitHub Pages
-        id: deployment
+      # Deploy only the generated site - never node_modules or .git
+      - name: Upload site artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: '.'
-        continue-on-error: true
+          path: _site
 
-      - name: Deploy pages
-        uses: actions/deploy-pages@v3
-        continue-on-error: true
+      # Skip this step if you are not publishing to GitHub Pages
+      - name: Deploy to GitHub Pages
+        uses: actions/deploy-pages@v4
