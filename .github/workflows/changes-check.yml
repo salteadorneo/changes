@@ -5,13 +5,14 @@ name: Changes Check
 # Want automatic runs? Uncomment the schedule below.
 on:
   workflow_dispatch:
-  # schedule:
-  #   - cron: '*/15 * * * *'
+  schedule:
+    - cron: '0 * * * *'
 
 permissions:
   contents: read
   pages: write
   id-token: write
+  issues: write
 
 # Never let two checks run at the same time
 concurrency:
@@ -52,15 +53,6 @@ jobs:
       - name: Run change detection
         run: npm run build
 
-      - name: Save state
-        uses: actions/cache/save@v4
-        with:
-          path: |
-            api
-            screenshots
-          key: changes-state-${{ github.run_id }}
-          if-no-files-found: ignore
-
       - name: Prepare site
         run: |
           mkdir -p _site
@@ -81,3 +73,23 @@ jobs:
       # Skip this step if you are not publishing to GitHub Pages
       - name: Deploy to GitHub Pages
         uses: actions/deploy-pages@v4
+
+      # Runs after the deploy so the links in the issue are already live.
+      # Never fails the run: a broken notification must not block the site.
+      - name: Notify changes as GitHub Issues
+        continue-on-error: true
+        run: npm run notify
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SITE_URL: ${{ vars.SITE_URL }}
+
+      # Must come last: the notify step writes api/<id>/notified.json and that
+      # file has to land in the cache, otherwise the same change alerts twice.
+      - name: Save state
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            api
+            screenshots
+          key: changes-state-${{ github.run_id }}
+          if-no-files-found: ignore

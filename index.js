@@ -6,6 +6,7 @@ import { checkContent } from './lib/detector.js';
 import { computeDiff } from './lib/diff.js';
 import { captureScreenshot, listScreenshots, pruneScreenshots } from './lib/screenshot.js';
 import { generateHTML, generateSourcePage } from './lib/html.js';
+import { generateId } from './lib/utils.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -21,10 +22,6 @@ function loadConfig() {
     } else {
         throw new Error('No config.yml or config.json found');
     }
-}
-
-function generateId(name) {
-    return name.toLowerCase().replace(/[^a-z0-9]+/g, '-');
 }
 
 function normalizeSource(source) {

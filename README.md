@@ -103,9 +103,57 @@ a warning and continues without pictures.
 npm run build   # Run one check and write the site to ./index.html
 npm run dev     # Same, in watch mode
 npm test        # Run the test suite
+npm run notify  # Open/comment GitHub Issues for unreported changes
 ```
 
-There is nothing to install - the project has no dependencies.
+There is only one optional dependency (`puppeteer-core`); the monitor itself
+runs on the Node.js standard library.
+
+## Notifications via GitHub Issues
+
+GitHub emails you when an issue is opened or commented on, so issues work as
+a notification channel with no extra service involved.
+
+`npm run notify` reads `api/<id>/status.json` and, for every change that has
+not been reported yet, either opens an issue or comments on the open one:
+
+> **estopa**
+>
+> - **Fuente:** https://www.estopa.com
+> - **Detectado:** 2026-10-14T18:42:00.000Z
+> - **Hash:** `1b4d0e8a2f7c` -> `9ae9e98bfd82`
+> - **Timeline:** https://example.dev/source/estopa.html
+>
+> **Capturas**
+>
+> - **Antes:** [ver](https://example.dev/screenshots/estopa/2026-10-14T09-15-00.png)
+> - **Después:** [ver](https://example.dev/screenshots/estopa/2026-10-14T18-42-00.png)
+>
+> **Diff**
+>
+> ```diff
+>   Productos
+> - Cafeteraexpress-22 - 199,00 EUR
+> + Cafeteraexpress-22 - 149,00 EUR
+> ... 212 lineas sin cambios
+> ```
+
+Behaviour worth knowing:
+
+- **At most one open issue per source.** A change arriving while an alert is
+  still open comments on it and closes it, so every change notifies but the
+  issue list never piles up.
+- **Idempotent.** `api/<id>/notified.json` records the last reported hash, so
+  a re-run of the same change stays quiet.
+- **Runs after the deploy**, so the links inside the issue are already live.
+- **Never fails the build** - the workflow step is `continue-on-error`.
+- Skip it entirely by removing the `issues: write` permission and the step.
+
+Enable email by watching the repository (**Watch > Custom > Issues only**).
+You will not get notifications by default.
+
+The base URL used in those links comes from the `SITE_URL` repository
+variable, else from `CNAME`, else `https://<owner>.github.io/<repo>`.
 
 ## How it works
 
@@ -183,8 +231,9 @@ lib/diff.js            # LCS line diff + word-level diff
 lib/screenshot.js      # Capture, archive listing, retention
 lib/html.js            # Dashboard and timeline generation
 lib/yaml-parser.js     # Minimal YAML parser
-lib/utils.js           # Date and JSON helpers
+lib/utils.js           # Ids, dates and JSON helpers
 lang/{en,es}.json      # UI strings
+scripts/notify.js      # GitHub Issue notifications
 ```
 
 ## Notes and limits
@@ -197,13 +246,6 @@ lang/{en,es}.json      # UI strings
   truncated, which is plenty for spotting a price or a ticket counter.
 - `actions/cache` entries are dropped after 7 days without a run. As long as
   the workflow keeps running, the archive stays warm.
-
-## Not implemented yet
-
-Email notifications are not wired up. The natural hook would be a step in
-`changes-check.yml` that reads `api/*/status.json` after the build and opens a
-GitHub Issue when something changed - issues double as a free, searchable
-notification channel.
 
 ## License
 

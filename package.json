@@ -7,6 +7,7 @@
   "scripts": {
     "dev": "node --watch index.js",
     "build": "node index.js",
+    "notify": "node scripts/notify.js",
     "test": "node --test",
     "test:watch": "node --test --watch"
   },
