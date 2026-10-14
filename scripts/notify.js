@@ -22,13 +22,100 @@ import path from 'path';
 import { fileURLToPath, pathToFileURL } from 'url';
 import { parseYAML } from '../lib/yaml-parser.js';
 import { generateId } from '../lib/utils.js';
+import { loadLanguage } from '../lib/html.js';
+
+const LABEL = 'changes';
+const MAX_DIFF_LINES = 40;
+
+/**
+ * Title carries a machine-readable marker so we can match our own issues
+ * without creating one label per source.
+ */
+export function issueTitle(source, language = 'en') {
+    const strings = loadLanguage(language);
+    return `[${LABEL}:${source.id}] ${source.name} - ${strings.issueSuffix}`;
+}
+
+export function issueBody(source, change, siteUrl, language = 'en') {
+    const s = loadLanguage(language);
+    const link = path => (siteUrl ? `${siteUrl}/${path}` : path);
+    const lines = [];
+
+    lines.push(`## ${source.name}`, '');
+    lines.push(`- **${s.issueSource}:** ${source.url}`);
+
+    if (source.selector) lines.push(`- **${s.issueSelector}:** \`${source.selector}\``);
+    if (source.jsonPath) lines.push(`- **${s.jsonPath}:** \`${source.jsonPath}\``);
+
+    lines.push(`- **${s.issueDetected}:** ${change.timestamp}`);
+
+    if (change.previousHash || change.hash) {
+        lines.push(`- **${s.hash}:** \`${short(change.previousHash)}\` -> \`${short(change.hash)}\``);
+    }
+
+    if (siteUrl) {
+        lines.push(`- **${s.issueTimeline}:** ${link(`source/${source.id}.html`)}`);
+    }
+
+    if (change.screenshot || change.previousScreenshot) {
+        lines.push('', `### ${s.issueScreenshots}`, '');
+        const cell = (label, shot) =>
+            shot ? `**${label}:** [${s.issueView}](${link(shot)})` : `**${label}:** _${s.noCapture}_`;
+        lines.push(`- ${cell(s.before, change.previousScreenshot)}`);
+        lines.push(`- ${cell(s.after, change.screenshot)}`);
+    }
+
+    lines.push('', `### ${s.issueDiff}`, '', renderDiff(change.diff, language));
+
+    return lines.join('\n');
+}
+
+function short(hash) {
+    return hash ? String(hash).slice(0, 12) : '-';
+}
+
+/**
+ * Render the stored line diff as a fenced block, trimmed to keep issues short.
+ */
+export function renderDiff(diff, language = 'en', maxLines = MAX_DIFF_LINES) {
+    const s = loadLanguage(language);
+
+    if (!Array.isArray(diff) || diff.length === 0) {
+        return `_${s.issueNoDiff}_`;
+    }
+
+    const out = [];
+
+    for (const entry of diff) {
+        if (out.length >= maxLines) {
+            out.push('... diff recortado, consulta el timeline completo');
+            break;
+        }
+
+        switch (entry.type) {
+            case 'skip':
+                out.push(`... ${entry.count} ${entry.count === 1 ? s.unchangedLine : s.unchangedLines}`);
+                break;
+            case 'add':
+                out.push(`+ ${entry.line}`);
+                break;
+            case 'remove':
+                out.push(`- ${entry.line}`);
+                break;
+            case 'truncated':
+                out.push(`[${s.diffTooLong}: ${entry.oldCount} -> ${entry.newCount}]`);
+                break;
+            default:
+                out.push(`  ${entry.line}`);
+        }
+    }
+
+    return ['```diff', ...out, '```'].join('\n');
+}
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const ROOT = path.join(__dirname, '..');
-
-const LABEL = 'changes';
-const MAX_DIFF_LINES = 40;
 
 function readJSON(file, fallback) {
     if (!fs.existsSync(file)) return fallback;
@@ -68,88 +155,6 @@ export function resolveSiteUrl(env = process.env, root = ROOT) {
     }
 
     return '';
-}
-
-/**
- * Title carries a machine-readable marker so we can match our own issues
- * without creating one label per source.
- */
-export function issueTitle(source) {
-    return `[${LABEL}:${source.id}] ${source.name} - cambio detectado`;
-}
-
-export function issueBody(source, change, siteUrl) {
-    const link = path => (siteUrl ? `${siteUrl}/${path}` : path);
-    const lines = [];
-
-    lines.push(`## ${source.name}`, '');
-    lines.push(`- **Fuente:** ${source.url}`);
-
-    if (source.selector) lines.push(`- **Selector:** \`${source.selector}\``);
-    if (source.jsonPath) lines.push(`- **JSON path:** \`${source.jsonPath}\``);
-
-    lines.push(`- **Detectado:** ${change.timestamp}`);
-
-    if (change.previousHash || change.hash) {
-        lines.push(`- **Hash:** \`${short(change.previousHash)}\` -> \`${short(change.hash)}\``);
-    }
-
-    if (siteUrl) {
-        lines.push(`- **Timeline:** ${link(`source/${source.id}.html`)}`);
-    }
-
-    if (change.screenshot || change.previousScreenshot) {
-        lines.push('', '### Capturas', '');
-        const cell = (label, shot) =>
-            shot ? `**${label}:** [ver](${link(shot)})` : `**${label}:** _no disponible_`;
-        lines.push(`- ${cell('Antes', change.previousScreenshot)}`);
-        lines.push(`- ${cell('Después', change.screenshot)}`);
-    }
-
-    lines.push('', '### Diff', '', renderDiff(change.diff));
-
-    return lines.join('\n');
-}
-
-function short(hash) {
-    return hash ? String(hash).slice(0, 12) : '-';
-}
-
-/**
- * Render the stored line diff as a fenced block, trimmed to keep issues short.
- */
-export function renderDiff(diff, maxLines = MAX_DIFF_LINES) {
-    if (!Array.isArray(diff) || diff.length === 0) {
-        return '_Sin datos de diff._';
-    }
-
-    const out = [];
-
-    for (const entry of diff) {
-        if (out.length >= maxLines) {
-            out.push(`... diff recortado, consulta el timeline completo`);
-            break;
-        }
-
-        switch (entry.type) {
-            case 'skip':
-                out.push(`... ${entry.count} lineas sin cambios`);
-                break;
-            case 'add':
-                out.push(`+ ${entry.line}`);
-                break;
-            case 'remove':
-                out.push(`- ${entry.line}`);
-                break;
-            case 'truncated':
-                out.push(`[contenido demasiado largo: ${entry.oldCount} -> ${entry.newCount} lineas]`);
-                break;
-            default:
-                out.push(`  ${entry.line}`);
-        }
-    }
-
-    return ['```diff', ...out, '```'].join('\n');
 }
 
 class GitHub {
@@ -208,6 +213,27 @@ class GitHub {
             state: 'closed'
         });
     }
+}
+
+/**
+ * Read the configured UI language so the issue matches the site.
+ * @returns {string}
+ */
+export function loadConfigLanguage() {
+    const ymlPath = path.join(ROOT, 'config.yml');
+    const jsonPath = path.join(ROOT, 'config.json');
+
+    if (fs.existsSync(ymlPath)) {
+        try {
+            return parseYAML(fs.readFileSync(ymlPath, 'utf-8')).language || 'en';
+        } catch {
+            return 'en';
+        }
+    }
+    if (fs.existsSync(jsonPath)) {
+        return readJSON(jsonPath, {}).language || 'en';
+    }
+    return 'en';
 }
 
 /**
@@ -287,6 +313,7 @@ export async function main(env = process.env, log = console.log) {
 
     const siteUrl = resolveSiteUrl(env);
     const sources = loadSources();
+    const language = loadConfigLanguage();
     const pending = sources.map(pendingChange).filter(Boolean);
 
     if (pending.length === 0) {
@@ -298,8 +325,8 @@ export async function main(env = process.env, log = console.log) {
     const open = await github.openIssues();
 
     for (const { source, change } of pending) {
-        const title = issueTitle(source);
-        const body = issueBody(source, change, siteUrl);
+        const title = issueTitle(source, language);
+        const body = issueBody(source, change, siteUrl, language);
 
         try {
             const existing = open.find(issue => issue.title === title);

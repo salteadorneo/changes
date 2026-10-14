@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import { fileURLToPath } from 'url';
+import { fileURLToPath, pathToFileURL } from 'url';
 import { parseYAML } from './lib/yaml-parser.js';
 import { checkContent } from './lib/detector.js';
 import { computeDiff } from './lib/diff.js';
@@ -40,26 +40,41 @@ function normalizeSource(source) {
 /**
  * Decide whether this run should capture a screenshot.
  *
- * We do not shoot on every run (that is a lot of browser time and storage);
- * we shoot when the content changed, and once a day as a heartbeat so the
- * archive keeps growing even for sources that never change.
+ * The rule the project is built around:
+ *   - the very first run captures one, so every source always has at least
+ *     one screenshot (the thumbnail on the dashboard)
+ *   - a content change captures a new one, giving the before/after pair
+ *   - otherwise nothing is captured until something actually changes
  *
  * @param {Object} source - Normalised source
  * @param {string} status - 'changed' | 'unchanged'
  * @returns {{capture: boolean, reason: string}}
  */
-function shouldCapture(source, status) {
+export function shouldCapture(source, status) {
     if (!source.screenshots) return { capture: false, reason: 'disabled' };
     if (!/^https?:\/\//i.test(source.url || '')) return { capture: false, reason: 'not-http' };
     if (status === 'changed') return { capture: true, reason: 'change' };
 
-    const shots = listScreenshots(source.id);
-    const today = new Date().toISOString().slice(0, 10);
-    const shotToday = shots.some(shot => shot.savedAt.slice(0, 10) === today);
+    return listScreenshots(source.id).length === 0
+        ? { capture: true, reason: 'initial' }
+        : { capture: false, reason: 'no-change' };
+}
 
-    return shotToday
-        ? { capture: false, reason: 'already-captured-today' }
-        : { capture: true, reason: 'daily' };
+/**
+ * Screenshot paths that api/<id>/history.json still points at. Those are
+ * rendered on the timeline, so deleting them would leave broken images.
+ * @param {string} sourceId
+ * @returns {Set<string>}
+ */
+export function referencedScreenshots(sourceId) {
+    const refs = new Set();
+
+    for (const entry of loadChangesHistory(sourceId)) {
+        if (entry.screenshot) refs.add(entry.screenshot);
+        if (entry.previousScreenshot) refs.add(entry.previousScreenshot);
+    }
+
+    return refs;
 }
 
 function ensureDirectories() {
@@ -149,6 +164,8 @@ async function main() {
                     currentHash: result.currentHash,
                     previousHash: previousHash || null,
                     timestamp,
+                    checks: (previousData?.checks || 0) + 1,
+                    ...result.meta,
                     error: null
                 });
 
@@ -188,11 +205,21 @@ async function main() {
                 results.push({
                     id: source.id,
                     name: source.name,
+                    url: source.url,
+                    type: source.type,
+                    selector: source.selector,
+                    jsonPath: source.jsonPath,
+                    timeout: source.timeout,
                     status,
                     currentHash: result.currentHash,
                     previousHash,
-                    timestamp: new Date().toISOString(),
+                    lastCheck: timestamp,
+                    meta: result.meta,
+                    content: result.content,
                     error: null,
+                    thumbnail: listScreenshots(source.id)[0]?.path || null,
+                    changesCount: loadChangesHistory(source.id).length,
+                    checks: (previousData?.checks || 0) + 1,
                     changesHistory: loadChangesHistory(source.id)
                 });
 
@@ -215,6 +242,7 @@ async function main() {
                     name: source.name,
                     status: 'error',
                     error: error.message,
+                    thumbnail: listScreenshots(source.id)[0]?.path || null,
                     changesHistory: loadChangesHistory(source.id)
                 });
             }
@@ -222,7 +250,10 @@ async function main() {
 
         console.log('\nPruning screenshot archive...');
         for (const source of sources) {
-            const removed = pruneScreenshots(listScreenshots(source.id), config.archive);
+            const removed = pruneScreenshots(listScreenshots(source.id), {
+                ...config.archive,
+                protected: referencedScreenshots(source.id)
+            });
             if (removed.length > 0) {
                 console.log(`  ${source.id}: removed ${removed.length} old screenshot(s)`);
             }
@@ -238,7 +269,7 @@ async function main() {
 
         console.log('Generating source pages...');
         results.forEach(result => {
-            const html = generateSourcePage(result.name, result.id, result.changesHistory || [], config);
+            const html = generateSourcePage(result, result.changesHistory || [], config);
             fs.writeFileSync(path.join(__dirname, 'source', `${result.id}.html`), html, 'utf-8');
             console.log(`✓ Source page generated: source/${result.id}.html`);
         });
@@ -257,4 +288,7 @@ async function main() {
     }
 }
 
-main();
+// Only run when executed directly, so the helpers stay importable by tests
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+    main();
+}

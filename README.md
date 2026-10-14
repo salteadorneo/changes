@@ -10,6 +10,7 @@ Typical uses: tracking offer prices, event ticket availability, release notes, o
 - **Nothing generated is committed** - output lives in the Actions cache and in the deployment artifact
 - **Opt-in** - the workflow only runs when you trigger it
 - **Degrades gracefully** - with no browser available the monitor still works, just without pictures
+- **Alerts** - opens GitHub Issues when something changes, which doubles as email
 
 ## Quick Start
 
@@ -69,18 +70,24 @@ See `config.example.yml` for a commented version.
 
 ## Screenshots
 
-Every run decides whether to capture, so a 15-minute schedule does not mean
-15 minutes of screenshots:
+One screenshot is taken on the first run of every source - that becomes its
+thumbnail on the dashboard and the initial state. After that a new one is
+captured **only when the content changes**, giving the before/after pair for
+the timeline. Nothing is captured while things stay the same, so an hourly
+schedule over a quiet site still produces exactly one image.
 
 | Situation | Capture? |
 | --- | --- |
+| First run, no screenshot stored yet | yes - the initial thumbnail |
 | The content hash changed | yes - the change gets a before/after pair |
-| No change, but nothing captured today | yes - daily heartbeat |
-| No change, already captured today | no |
+| No change, a screenshot already exists | no |
 | `screenshots: false`, or a non-http URL | no |
 
-Shots land in `screenshots/<source-id>/<timestamp>.png` and the source page
-renders them side by side above the diff.
+Shots land in `screenshots/<source-id>/<timestamp>.png`. The dashboard card
+shows the newest one, and each source page renders the pair above the diff.
+
+Because captures are tied to changes, a source that never changes keeps a
+single image forever rather than accumulating one per run.
 
 ### Retention
 
@@ -89,6 +96,10 @@ Three tiers, applied after each run in `lib/screenshot.js`:
 1. keep the newest `keepRecent` shots, whatever their age
 2. keep the newest shot of each of the last `keepDaily` days
 3. drop the oldest until at most `maxTotal` remain per source
+
+Screenshots still referenced by `api/<id>/history.json` are never deleted, even
+if that pushes past `maxTotal` - otherwise the timeline would show broken
+before/after images.
 
 ### Browser
 
@@ -191,6 +202,33 @@ pictures survive without polluting the repo.
 
 If the cache is ever lost, the next run simply reports "no changes yet" and
 starts rebuilding from there.
+
+## Status file format
+
+Everything the fetcher learned about a source lands in `api/<id>/status.json`,
+and the source page renders it:
+
+```json
+{
+  "lastCheck": "2026-10-14T16:44:07.120Z",
+  "status": "unchanged",
+  "currentHash": "9ae9e98b...",
+  "previousHash": "1b4d0e8a...",
+  "checks": 16,
+  "fetchedAt": "2026-10-14T16:44:07.098Z",
+  "httpStatus": 200,
+  "durationMs": 178,
+  "responseBytes": 162018,
+  "contentChars": 1439,
+  "contentLines": 46,
+  "error": null
+}
+```
+
+So each source page answers, without you having to guess: how long the request
+took, whether the server answered OK, how big the page was versus how much was
+actually extracted, when it was last checked, and what the content hash is now
+versus what it was before.
 
 ## GitHub Actions
 
